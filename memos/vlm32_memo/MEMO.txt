@@ -1,0 +1,17 @@
+(authored by agents unless marked 🧑)
+
+This memo covers last week, the general directions we have, the biggest problems in finding directions, three detailed directions, and brief mentions of the rest.
+
+Last week you asked me to find web things to verify, with a differentiator and bite-sized problems drawn from real breakage. I went through about 30 candidates and kept three.
+
+Our general directions are an agent browser core where many sessions share one process, SSO sign-in and sign-out consistency, and collaborative-editor sync, all distributed or isolation problems in Rust where we can own the code we verify. JavaScript engines checked against the spec stay at low priority.
+
+The biggest problem has been finding ideas where the proof is the point. Many ideas were reactions to single bugs, too small for a paper. In others the formal verification was decoration on a measurement or an analyzer. And much of the web needs JavaScript semantics, while our tools are verified Rust.
+
+First, an agent browser core on Servo, from our Nov 3 discussion. Running many users' sessions in one process is far cheaper than a process per tab, and agent browsers already do it, but it is only safe if one session provably never sees another's data. We would prove that every network and storage access goes through a small verified core that enforces the URL, cookie and redirect rules per session. Open is how much of Servo must change to make bypassing the core impossible, and whether this goes far enough beyond Quark.
+
+Second, SSO. Whether you are signed in is one fact copied across tabs, apps and the login provider, and the copies drift: a 2022 study found hundreds of apps still accepting sessions ten days after revocation. We would build our own login provider in verified Rust and prove you are signed out everywhere exactly when you sign out, never before and never too late, treating apps and browsers as assumptions. Open is prior work; the main formal model of OpenID Connect leaves logout out, but I have not read everything close.
+
+Third, collaborative-editor sync. Merge rules for CRDTs already have proofs, but the sync protocol that decides what each side still needs has none on real code, and Automerge and Loro have open bugs where sync loops or copies silently diverge. We would prove in Verus that two replicas reporting "in sync" hold identical documents and that they reach that state if messages are eventually delivered, which also fills the gap left by our forked editor's verified merge logic, where sync was assumed. Open is novelty against three protocol proofs I have not read in full.
+
+Other directions we looked at include cookie consent, which is not ready to share yet, shared caches and CDN purge, web archive replay, third-party page scripts, HTTP parser disagreements, HTTP/2 flow control, back/forward cache restore, click user-activation across processes in Servo, proofs that expire with web atoms, isolating an agent's actions across sites, and the Public Suffix List.
