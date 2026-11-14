@@ -52,8 +52,8 @@ remaining proof obligations
   - the [semantic translator](CLEANUP_SEMANTICS.md) now generates and discharges destructor map-effect obligations under explicit compiler, translator and dependency assumptions
 - establish that publishing a writer lock initializes this slot to `Some` with that same lock
   - a type-correct but empty guard slot would pass this control-flow check
-  - [publication interpretation](PUBLICATION_MIR.md) checks this for the conditional map-miss path and repeated Pending polls
-  - all-entry coverage and initial frame assumptions remain open
+  - [publication interpretation](PUBLICATION_MIR.md) enumerates cache/map lookup outcomes and checks every direct-registration case across repeated Pending polls
+  - whole-function coverage and initial capture-schema assumptions remain open
 - verify the real destructor's notification and conditional removal
   - the semantic translator handles acyclic normal-call paths; no unwind-completion or termination claim
   - retain its dependency assumptions explicitly
