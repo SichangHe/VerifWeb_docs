@@ -7,6 +7,8 @@ Follow-up: the human authorized proceeding with our choice of approach. We repro
 
 ## Evidence and version boundary
 
+The [combined conditional check](CONDITIONAL_CHECK.md) runs ownership, cancellation-path and cleanup verification against paired compiler artifacts. It passed on the pinned Pingora build; its scope is the map-miss path with normal-returning calls and repeated Pending polls.
+
 We tested the latest available rolling binary, `0.2026.11.05.31e44e6`, then built and tested main at `6ae5f7b97c6403789fc1f12117ea8b2f0092289c` (`0.2026.11.13.6ae5f7b`) with its matching standard library. The latest stable release, `0.2026.11.02.8bf68ee`, predates the async soundness repair merged November 4. The rolling binary predates the cross-module repair merged November 13. Results on these versions must not be conflated. [UPSTREAM.md](UPSTREAM.md) records issue status, contributors, and source quotations; [TESTS.md](TESTS.md) records the support probes.
 
 The rolling-release probes verify async return postconditions, a mutable borrow spanning an await, and a simple handwritten `Future::poll` with its result specification. False completion postconditions fail. Inline async blocks produce “Verus does not currently support coroutine types”; async trait declarations produce “Verus does not currently support `impl Trait` types in trait definitions”. The exact cross-module future-creation case in #3439 fails, while a cross-module awaiting caller works. The #2541 compiler crash does not reproduce, but that example verifies zero functions and therefore does not demonstrate verified async trait support.
