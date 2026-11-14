@@ -59,7 +59,9 @@ def main() -> int:
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         print(f"conditional check failed: {error}")
         return 1
-    print("conditional map-miss/Pending cleanup chain passed; see CONDITIONAL_CHECK.md")
+    print(
+        "conditional lookup-outcome/Pending cleanup chain passed; see CONDITIONAL_CHECK.md"
+    )
     return 0
 
 

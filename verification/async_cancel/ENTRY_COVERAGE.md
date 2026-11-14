@@ -40,8 +40,8 @@ source connection
 remaining proof obligations
 - block-prefix coverage does not establish coverage of all possible values
   - the publication interpreter now derives saved frame values and key derivation from initial dispatch
-  - its cache/map misses remain conditional call outcomes; different values may follow the same block sequence
-  - the checker does not establish that every state reaching insertion follows the interpreted map-miss semantics
+  - the publication interpreter separately enumerates cache/map hit-or-miss outcomes and requires every publishing case to retain a matching guard
+  - structural coverage alone does not establish semantic coverage; insertion-free suffix behavior and effects hidden inside calls remain outside interpretation
   - no whole-function ownership theorem follows from this check
 - direct call names delimit the insertion inventory
   - callees, generic callbacks, destructors and indirect calls may modify shared state under their separate contracts

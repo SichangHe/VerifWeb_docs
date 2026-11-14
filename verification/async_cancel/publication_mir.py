@@ -1,8 +1,9 @@
-"""Interpret the restricted normal-return Pingora map-miss publication path."""
+"""Check direct publication over cache/map outcomes under normal returns."""
 
 import re
 import sys
 from dataclasses import dataclass, field
+from itertools import product
 from pathlib import Path
 
 from verification.async_cancel.cleanup_mir_check import functions
@@ -26,6 +27,17 @@ class State:
     locked: bool = False
     allocations: int = 0
     trace: list[str] = field(default_factory=list)
+    hits: tuple[bool, ...] = ()
+    gets: int = 0
+    no_publication_exit: bool = False
+
+    def get_result(self, payload: Value) -> Value | str:
+        """Select one enumerated get result; reject unbounded additional gets."""
+        if self.gets == len(self.hits):
+            return "get result schedule exhausted"
+        hit = self.hits[self.gets]
+        self.gets += 1
+        return Value("some", items=(payload,)) if hit else Value("none")
 
 
 def blocks(text: str) -> dict[str, list[str]] | str:
@@ -213,7 +225,10 @@ def call(name: str, args: str, state: State, constructor: str) -> Value | str:
             read == [Value("cache", "self.cache"), Value("lookup_key")]
             and state.publication is None
         ):
-            return Value("tuple", items=(Value("none"), Value("cache_status")))
+            result = state.get_result(Value("cached_value"))
+            if isinstance(result, str):
+                return result
+            return Value("tuple", items=(result, Value("cache_status")))
     if name == "ahash::RandomState::hash_one::<&K>":
         if (
             read == [Value("hasher", "self.cache.hasher"), Value("lookup_key")]
@@ -238,8 +253,13 @@ def call(name: str, args: str, state: State, constructor: str) -> Value | str:
         ):
             return Value("view", items=read[0].items)
     if name == "Option::<&Arc<CacheLock>>::cloned":
-        if actual == [Value("none")] and state.publication is None:
-            return Value("none")
+        if len(actual) == 1 and state.publication is None:
+            if actual[0] == Value("none"):
+                return actual[0]
+            if actual[0].sort == "some" and len(actual[0].items) == 1:
+                arc = deref(actual[0].items[0], state)
+                if arc and arc.sort == "arc":
+                    return Value("some", items=(arc,))
     if name == write and len(read) == 1 and read[0] and read[0].sort == "map":
         state.locked = True
         return Value("write_guard", items=(read[0],))
@@ -253,7 +273,9 @@ def call(name: str, args: str, state: State, constructor: str) -> Value | str:
             return Value("view", items=read[0].items)
     if name == "HashMap::<u64, Arc<CacheLock>>::get::<u64>":
         if [v.sort if v else None for v in read] == ["map", "key"] and state.locked:
-            return Value("none")
+            return state.get_result(
+                Value("view", items=(Value("arc", f"existing:{state.gets}"),))
+            )
     if name == "CacheLock::new_arc" and not actual:
         state.allocations += 1
         return Value("arc", str(state.allocations))
@@ -323,14 +345,25 @@ def call(name: str, args: str, state: State, constructor: str) -> Value | str:
 
 
 def execute(
-    program: dict[str, list[str]], entry: str, state: State, constructor: str
+    program: dict[str, list[str]],
+    entry: str,
+    state: State,
+    constructor: str,
+    insertion_prefix: frozenset[str] | None = None,
 ) -> State | str:
-    """Follow evaluated branches until return; reject cycles and unknown operations."""
+    """Run until return or a graph-proved exit from all direct-insertion paths."""
     visited: set[str] = set()
     block = entry
     while block not in visited:
         if block not in program:
             return f"missing block {block}"
+        if (
+            insertion_prefix is not None
+            and state.publication is None
+            and block not in insertion_prefix
+        ):
+            state.no_publication_exit = True
+            return state
         visited.add(block)
         state.trace.append(block)
         lines = program[block]
@@ -445,7 +478,14 @@ def construct(text: str, capture: Value, arc: Value) -> Value | str:
 def check(
     resume: str, emitted: str, required_prefix: tuple[str, ...] | None = None
 ) -> str | None:
-    """Check initial dispatch through cache/map misses, Pending and resumption."""
+    """Enumerate cache/map outcomes and check every direct-publication case."""
+    from verification.async_cancel.entry_coverage import check as entry_check
+
+    prefix = entry_check(resume)
+    if isinstance(prefix, str):
+        return prefix
+    if required_prefix is not None and prefix != required_prefix:
+        return "provided insertion prefix differs from structural coverage"
     program = blocks(resume)
     constructors = [
         body
@@ -456,6 +496,22 @@ def check(
     if isinstance(program, str) or len(constructors) != 1 or not frame:
         return "unsupported function, constructor, or frame layout"
     constructor = constructors[0]
+    published = False
+    for hits in product((False, True), repeat=3):
+        result = check_case(program, constructor, prefix, hits)
+        if isinstance(result, str):
+            return result
+        published |= result
+    return None if published else "no enumerated execution covers direct insertion"
+
+
+def check_case(
+    program: dict[str, list[str]],
+    constructor: str,
+    prefix: tuple[str, ...],
+    hits: tuple[bool, ...],
+) -> bool | str:
+    """Return whether this outcome schedule publishes, or its proof failure."""
     initial = State(
         {
             "_1": Value("tuple", items=(Value("view", items=(Value("frame"),)),)),
@@ -465,15 +521,17 @@ def check(
             "frame:input:1": Value("view", items=(Value("lookup_key"),)),
             "frame:input:2": Value("ttl"),
             "frame:input:3": Value("extra"),
-        }
+        },
+        hits=hits,
     )
-    first = execute(program, "bb0", initial, constructor)
+    first = execute(program, "bb0", initial, constructor, frozenset(prefix))
     if isinstance(first, str):
         return first
-    if (
-        required_prefix is not None
-        and tuple(first.trace[: len(required_prefix)]) != required_prefix
-    ):
+    if first.publication is None:
+        return (
+            False if first.no_publication_exit else "unjustified no-publication outcome"
+        )
+    if tuple(first.trace[: len(prefix)]) != prefix:
         return "interpreted execution does not cover the unique insertion prefix"
     expected = (
         Value("some", items=(Value("guard", items=first.publication),))
@@ -515,7 +573,7 @@ def check(
         or second.locked
     ):
         return "resume does not preserve the guarded Pending invariant"
-    return None
+    return True
 
 
 def main() -> int:

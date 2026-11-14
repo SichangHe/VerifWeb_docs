@@ -2,9 +2,11 @@
 
 import os
 import re
+from itertools import product
 from pathlib import Path
 
-from verification.async_cancel.publication_mir import check
+from verification.async_cancel.cleanup_mir_check import functions
+from verification.async_cancel.publication_mir import blocks, check, check_case
 from verification.async_cancel.entry_coverage import check as check_coverage
 
 
@@ -33,7 +35,33 @@ def main() -> None:
     assert check(resume, emitted, prefix) is None
     assert check(resume, emitted, ("bb0", "bb99999")) is not None
     assert check(rename(resume), rename(emitted)) is None
+    program = blocks(resume)
+    assert not isinstance(program, str)
+    constructor = next(
+        body
+        for body in functions(emitted)
+        if "::get::{closure#0}::{closure#0}(" in body.splitlines()[0]
+    )
+    assert [
+        check_case(program, constructor, prefix, hits)
+        for hits in product((False, True), repeat=3)
+    ] == [True, False, False, False, False, False, False, False]
+    assert (
+        check(
+            replace(
+                resume,
+                "[0: bb14, 1: bb15, otherwise: bb13]",
+                "[0: bb15, 1: bb14, otherwise: bb13]",
+            ),
+            emitted,
+        )
+        is None
+    )
     mutations = [
+        (
+            "    bb44: {\n        StorageDead(_57);\n        StorageDead(_56);\n        goto -> bb55;",
+            "    bb44: {\n        StorageDead(_57);\n        StorageDead(_56);\n        goto -> bb31;",
+        ),
         ("[0: bb444, 1: bb443", "[0: bb14, 1: bb443"),
         (
             "= copy ((*_346).0: &read_through::RTCache<K, T, CB, S>);",
@@ -52,7 +80,6 @@ def main() -> None:
             "_9 = MemoryCache::<K, T>::get::<K>(move _10, move _11)",
             "_9 = MemoryCache::<K, T>::get::<K>(move _11, move _10)",
         ),
-        ("[0: bb14, 1: bb15, otherwise: bb13]", "[0: bb15, 1: bb14, otherwise: bb13]"),
         (
             "_70 = <Arc<CacheLock> as Clone>::clone(move _71)",
             "_70 = CacheLock::new_arc()",
