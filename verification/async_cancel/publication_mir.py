@@ -71,7 +71,9 @@ def frame_layout(resume: str, emitted: str) -> FrameLayout | str:
     pointers: set[str] = set()
     for index, (name, operand) in enumerate(captures):
         debug: list[tuple[str, str, str]] = re.findall(
-            rf"^    debug {name} => \(\(\*(_\d+)\)\.(\d+): (.+)\);$", resume, re.M
+            rf"^    debug {name} => \(\(\*(_\d+)\)\.(\d+): (.+)\);$",
+            resume,
+            re.MULTILINE,
         )
         role = roles.index(name)
         if (
@@ -85,17 +87,17 @@ def frame_layout(resume: str, emitted: str) -> FrameLayout | str:
         pointers.add(debug[0][0])
         inputs[f"frame:input:{index}"] = params[operand]
     fields: list[tuple[str, str]] = re.findall(
-        r"^        field (_s\d+): (.+);$", resume, re.M
+        r"^        field (_s\d+): (.+);$", resume, re.MULTILINE
     )
     declared = dict(fields)
     variants: list[tuple[str, str]] = re.findall(
-        r"^            \w+\s*\((\d+)\): \[([^]]*)\],$", resume, re.M
+        r"^            \w+\s*\((\d+)\): \[([^]]*)\],$", resume, re.MULTILINE
     )
     slots = {
         state: entries.split(", ") if entries else [] for state, entries in variants
     }
     unresumed: list[str] = re.findall(
-        r"^            Unresumed\((\d+)\): \[\],$", resume, re.M
+        r"^            Unresumed\((\d+)\): \[\],$", resume, re.MULTILINE
     )
     if (
         len(declared) != len(fields)
@@ -169,7 +171,9 @@ def blocks(text: str) -> dict[str, list[str]] | str:
     """Read compiler-formatted blocks and reject duplicate or empty blocks."""
     result: dict[str, list[str]] = {}
     for match in re.finditer(
-        r"^    (bb\d+)(?: \(cleanup\))?: \{\n(.*?)^    }", text, re.M | re.S
+        r"^    (bb\d+)(?: \(cleanup\))?: \{\n(.*?)^    }",
+        text,
+        re.MULTILINE | re.DOTALL,
     ):
         name, body = match.groups()
         if name in result:
@@ -345,68 +349,78 @@ def call(name: str, args: str, state: State, constructor: str) -> Value | str:
     write = "parking_lot::lock_api::RwLock::<parking_lot::RawRwLock, HashMap<u64, Arc<CacheLock>>>::write"
     guard = "parking_lot::lock_api::RwLockWriteGuard<'_, parking_lot::RawRwLock, HashMap<u64, Arc<CacheLock>>>"
     read_guard = "parking_lot::lock_api::RwLockReadGuard<'_, parking_lot::RawRwLock, HashMap<u64, Arc<CacheLock>>>"
-    if name == "MemoryCache::<K, T>::get::<K>":
-        if (
-            read == [Value("cache", "self.cache"), Value("lookup_key")]
-            and state.publication is None
-        ):
-            result = state.get_result(Value("cached_value"))
-            if isinstance(result, str):
-                return result
-            return Value("tuple", items=(result, Value("cache_status")))
-    if name == "ahash::RandomState::hash_one::<&K>":
-        if (
-            read == [Value("hasher", "self.cache.hasher"), Value("lookup_key")]
-            and state.publication is None
-        ):
-            return Value("key", "hashed_key")
-    if name == write.removesuffix("write") + "read":
-        if (
-            read == [Value("map", "self.lockers")]
-            and state.publication is None
-            and not state.locked
-        ):
-            state.locked = True
-            return Value("read_guard", items=(Value("map", "self.lockers"),))
-    if name == f"<{read_guard} as Deref>::deref":
-        if (
-            len(read) == 1
-            and read[0]
-            and read[0].sort == "read_guard"
-            and state.locked
-            and state.publication is None
-        ):
-            return Value("view", items=read[0].items)
-    if name == "Option::<&Arc<CacheLock>>::cloned":
-        if len(actual) == 1 and state.publication is None:
-            if actual[0] == Value("none"):
-                return actual[0]
-            if actual[0].sort == "some" and len(actual[0].items) == 1:
-                arc = deref(actual[0].items[0], state)
-                if arc and arc.sort == "arc":
-                    return Value("some", items=(arc,))
+    if (
+        name == "MemoryCache::<K, T>::get::<K>"
+        and read == [Value("cache", "self.cache"), Value("lookup_key")]
+        and state.publication is None
+    ):
+        result = state.get_result(Value("cached_value"))
+        if isinstance(result, str):
+            return result
+        return Value("tuple", items=(result, Value("cache_status")))
+    if (
+        name == "ahash::RandomState::hash_one::<&K>"
+        and read == [Value("hasher", "self.cache.hasher"), Value("lookup_key")]
+        and state.publication is None
+    ):
+        return Value("key", "hashed_key")
+    if (
+        name == write.removesuffix("write") + "read"
+        and read == [Value("map", "self.lockers")]
+        and state.publication is None
+        and not state.locked
+    ):
+        state.locked = True
+        return Value("read_guard", items=(Value("map", "self.lockers"),))
+    if (
+        name == f"<{read_guard} as Deref>::deref"
+        and len(read) == 1
+        and read[0]
+        and read[0].sort == "read_guard"
+        and state.locked
+        and state.publication is None
+    ):
+        return Value("view", items=read[0].items)
+    if (
+        name == "Option::<&Arc<CacheLock>>::cloned"
+        and len(actual) == 1
+        and state.publication is None
+    ):
+        if actual[0] == Value("none"):
+            return actual[0]
+        if actual[0].sort == "some" and len(actual[0].items) == 1:
+            arc = deref(actual[0].items[0], state)
+            if arc and arc.sort == "arc":
+                return Value("some", items=(arc,))
     if name == write and len(read) == 1 and read[0] and read[0].sort == "map":
         state.locked = True
         return Value("write_guard", items=(read[0],))
-    if name in {f"<{guard} as Deref>::deref", f"<{guard} as DerefMut>::deref_mut"}:
-        if (
-            len(read) == 1
-            and read[0]
-            and read[0].sort == "write_guard"
-            and state.locked
-        ):
-            return Value("view", items=read[0].items)
-    if name == "HashMap::<u64, Arc<CacheLock>>::get::<u64>":
-        if [v.sort if v else None for v in read] == ["map", "key"] and state.locked:
-            return state.get_result(
-                Value("view", items=(Value("arc", f"existing:{state.gets}"),))
-            )
+    if (
+        name in {f"<{guard} as Deref>::deref", f"<{guard} as DerefMut>::deref_mut"}
+        and len(read) == 1
+        and read[0]
+        and read[0].sort == "write_guard"
+        and state.locked
+    ):
+        return Value("view", items=read[0].items)
+    if (
+        name == "HashMap::<u64, Arc<CacheLock>>::get::<u64>"
+        and [v.sort if v else None for v in read] == ["map", "key"]
+        and state.locked
+    ):
+        return state.get_result(
+            Value("view", items=(Value("arc", f"existing:{state.gets}"),))
+        )
     if name == "CacheLock::new_arc" and not actual:
         state.allocations += 1
         return Value("arc", str(state.allocations))
-    if name == "<Arc<CacheLock> as Clone>::clone":
-        if len(read) == 1 and read[0] and read[0].sort == "arc":
-            return read[0]
+    if (
+        name == "<Arc<CacheLock> as Clone>::clone"
+        and len(read) == 1
+        and read[0]
+        and read[0].sort == "arc"
+    ):
+        return read[0]
     if name == "HashMap::<u64, Arc<CacheLock>>::insert" and len(actual) == 3:
         value = deref(actual[0], state)
         if (
@@ -446,26 +460,31 @@ def call(name: str, args: str, state: State, constructor: str) -> Value | str:
                 tuple(Value("view", items=(v,)) for v in captures if v),
             )
             return construct(constructor, capture, actual[0].items[0])
-    if name == "<CB as Lookup<K, T, S>>::lookup::<'_, '_, '_>" and len(actual) == 2:
-        if deref(actual[0], state) == Value("lookup_key") and actual[1] == Value(
-            "extra"
-        ):
-            return Value("future")
+    if (
+        name == "<CB as Lookup<K, T, S>>::lookup::<'_, '_, '_>"
+        and len(actual) == 2
+        and deref(actual[0], state) == Value("lookup_key")
+        and actual[1] == Value("extra")
+    ):
+        return Value("future")
     if name.endswith(" as IntoFuture>::into_future") and actual == [Value("future")]:
         return actual[0]
-    if name.startswith("Pin::<&mut Pin<Box<dyn Future<") and name.endswith(
-        ">::new_unchecked"
+    if (
+        name.startswith("Pin::<&mut Pin<Box<dyn Future<")
+        and name.endswith(">::new_unchecked")
+        and len(read) == 1
+        and read[0] == Value("future")
     ):
-        if len(read) == 1 and read[0] == Value("future"):
-            return Value("pin", items=(actual[0],))
-    if name.startswith("<Pin<Box<dyn Future<") and name.endswith(" as Future>::poll"):
-        if (
-            len(actual) == 2
-            and actual[0].sort == "pin"
-            and deref(actual[0].items[0], state) == Value("future")
-            and deref(actual[1], state) == Value("context_raw")
-        ):
-            return Value("poll")
+        return Value("pin", items=(actual[0],))
+    if (
+        name.startswith("<Pin<Box<dyn Future<")
+        and name.endswith(" as Future>::poll")
+        and len(actual) == 2
+        and actual[0].sort == "pin"
+        and deref(actual[0].items[0], state) == Value("future")
+        and deref(actual[1], state) == Value("context_raw")
+    ):
+        return Value("poll")
     return f"unsupported call or arguments: {name}"
 
 
@@ -569,9 +588,8 @@ def execute(
                     state.env[target] = value
                 else:
                     return f"unsupported instruction in {block}: {line}"
-            if terminal:
-                if index != len(lines) - 1 or not next_block:
-                    return "invalid terminator"
+            if terminal and (index != len(lines) - 1 or not next_block):
+                return "invalid terminator"
         if next_block is None:
             return f"unterminated block {block}"
         block = next_block

@@ -6,13 +6,13 @@ from itertools import product
 from pathlib import Path
 
 from verification.async_cancel.cleanup_mir_check import functions
+from verification.async_cancel.entry_coverage import check as check_coverage
 from verification.async_cancel.publication_mir import (
     blocks,
     check,
     check_case,
     frame_layout,
 )
-from verification.async_cancel.entry_coverage import check as check_coverage
 
 
 def replace(text: str, before: str, after: str) -> str:
