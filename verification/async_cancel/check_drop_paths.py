@@ -65,9 +65,12 @@ def check(resume: str, drop: str, guard: str) -> list[str]:
     )
     graph = blocks(drop)
     entry = graph[0]
-    selector = re.search(r"(_\d+) = discriminant\(\(\*_1\)\);", entry.body)
-    if not selector or not entry.terminal.startswith(
-        f"switchInt(move {selector[1]}) -> ["
+    entry_lines = [line.strip() for line in entry.body.splitlines()]
+    selector = re.fullmatch(r"(_\d+) = discriminant\(\(\*_1\)\);", entry_lines[0])
+    if (
+        len(entry_lines) != 2
+        or not selector
+        or not entry.terminal.startswith(f"switchInt(move {selector[1]}) -> [")
     ):
         raise ValueError("unsupported coroutine entry dispatch")
     targets = {
@@ -107,6 +110,8 @@ def check(resume: str, drop: str, guard: str) -> list[str]:
                     continue
                 visited.add((node, completed))
                 block = graph[node]
+                if not completed:
+                    preserve_guard(block, variant, slot)
                 if block.terminal == "return;":
                     if not completed:
                         raise ValueError(
@@ -129,6 +134,42 @@ def check(resume: str, drop: str, guard: str) -> list[str]:
     if not checked:
         raise ValueError(f"no suspended {guard} slot found")
     return reports
+
+
+def preserve_guard(block: Block, variant: int, slot: int) -> None:
+    """Reject instructions that could change or expose the live guard slot.
+
+    The supported drop glue only updates boolean flags, manages local storage,
+    branches, and drops direct frame fields. Other field destructors must obey
+    Rust aliasing and cannot access the parent's private guard slot.
+    """
+    flag = re.compile(
+        r"\(\(\(\*_1\) as variant#(\d+)\)\.(\d+): bool\) = const (?:false|true);"
+    )
+    for statement in block.body.splitlines()[:-1]:
+        statement = statement.strip()
+        if re.fullmatch(
+            r"nop;|Storage(?:Live|Dead)\(_\d+\);|_\d+ = const (?:false|true);",
+            statement,
+        ):
+            continue
+        match = flag.fullmatch(statement)
+        if match and int(match[1]) == variant and int(match[2]) != slot:
+            continue
+        raise ValueError(f"unsupported statement before guard drop: {statement}")
+    terminal = block.terminal
+    if terminal in {"return;", "resume;", "unreachable;"}:
+        return
+    if re.fullmatch(r"goto -> bb\d+;", terminal):
+        return
+    if re.fullmatch(
+        rf"drop\(\(\(\(\*_1\) as variant#{variant}\)\.\d+: .+\)\) -> \[.+\];",
+        terminal,
+    ):
+        return
+    if re.fullmatch(r"switchInt\((?:copy|move) _\d+\) -> \[.+\];", terminal):
+        return
+    raise ValueError(f"unsupported terminator before guard drop: {terminal}")
 
 
 def main() -> int:

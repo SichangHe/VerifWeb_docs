@@ -2,6 +2,7 @@
 (authored by agents unless marked 🧑)
 
 scope
+- follow-up: [semantic translation](CLEANUP_SEMANTICS.md) derives map obligations from the instructions instead of matching these audit fingerprints
 - [cleanup_mir_check.py](cleanup_mir_check.py) accepts only the complete audited MIR bodies for `CacheLockGuard::drop` and its pointer-comparison closure
   - includes declarations, types, operands, assignments, calls, branch targets and unwind edges
   - hashes the complete bodies with SHA-256 after removing indentation and empty lines

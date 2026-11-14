@@ -25,6 +25,15 @@ class DropPathsTest(unittest.TestCase):
             reports[-1],
             "variant 7 slot 8: every normal return follows successful guard-slot drop",
         )
+        redirected, count = re.subn(
+            r"(_\d+) = discriminant\(\(\*_1\)\);",
+            r"\g<0>\n        \1 = const 0_isize;",
+            drop,
+            count=1,
+        )
+        self.assertEqual(count, 1)
+        with self.assertRaisesRegex(ValueError, "unsupported coroutine entry dispatch"):
+            _ = check(resume, redirected, "CacheLockGuard")
         bypassed, count = re.subn(
             r"drop\((.+CacheLockGuard<'_>.+) -> \[return: (bb\d+),[^\n]+;",
             r"goto -> \2;",
@@ -34,6 +43,23 @@ class DropPathsTest(unittest.TestCase):
         self.assertEqual(count, 1)
         with self.assertRaisesRegex(ValueError, "without guard-slot drop"):
             _ = check(resume, bypassed, "CacheLockGuard")
+
+        guard_drop = re.search(r"drop\((.+CacheLockGuard<'_>.+)\) -> \[return:", drop)
+        self.assertIsNotNone(guard_drop)
+        assert guard_drop is not None
+        place = guard_drop[1]
+        disarmed = drop.replace(
+            f"drop({place})",
+            f"{place} = Option::<CacheLockGuard<'_>>::None;\n        drop({place})",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported statement"):
+            _ = check(resume, disarmed, "CacheLockGuard")
+        exposed = drop.replace(
+            f"drop({place})", f"_999 = &mut {place};\n        drop({place})", 1
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported statement"):
+            _ = check(resume, exposed, "CacheLockGuard")
 
     def test_compiler_output_and_mutations(self) -> None:
         with tempfile.TemporaryDirectory(prefix="async-drop-check.") as directory:

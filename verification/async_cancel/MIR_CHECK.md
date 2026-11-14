@@ -13,9 +13,13 @@ result
 
 method
 - read paired `coroutine_resume` and `coroutine_drop` dumps for the same function
+  - require entry to read the frame discriminant and immediately switch on that value
   - obtain suspended-state field positions from the compiler's layout
   - obtain destruction entry blocks from its discriminant switch
 - explore every graph path using states `(basic block, guard-slot drop completed)`
+  - before completion, accept only storage bookkeeping, boolean flag writes outside the guard slot, direct frame-field drops and branches
+  - reject guard-slot overwrites, exposed aliases and other instructions
+  - assume other fields' destructors respect Rust aliasing and cannot mutate this private guard slot
   - mark completion only on the guard drop's normal-return edge
   - follow both normal and unwind successors
   - reject any normal return reached without completion
@@ -37,6 +41,7 @@ reproduction
   - the real Pingora dump is also checked when the environment variable is supplied
   - removing the normal guard-drop edge is rejected in both
   - mismatched functions, absent guard, unsupported terminator, and a shared normal/unwind target are rejected
+  - replacing the live guard with None or borrowing its slot before dropping it is rejected
 - executed test output: `Ran 2 tests in 0.060s` followed by `OK`
   - real Pingora bypass mutation was rejected
   - Ruff and basedpyright reported no findings
@@ -44,10 +49,11 @@ reproduction
 remaining proof obligations
 - follow-up audits are recorded in [ownership](OWNERSHIP_MIR.md) and [cleanup](CLEANUP_MIR.md)
   - audit fingerprints detect changes to reviewed fragments; they do not discharge semantic proof obligations
-  - Verus verifies the abstract map-effect lemma, not its correspondence to the destructor
+  - the [semantic translator](CLEANUP_SEMANTICS.md) now generates and discharges destructor map-effect obligations under explicit compiler, translator and dependency assumptions
 - establish that publishing a writer lock initializes this slot to `Some` with that same lock
   - a type-correct but empty guard slot would pass this control-flow check
 - verify the real destructor's notification and conditional removal
+  - the semantic translator handles acyclic normal-call paths; no unwind-completion or termination claim
   - retain its dependency assumptions explicitly
   - `Arc::ptr_eq` currently produces `is not supported` in a direct Verus probe
 - prove or state the behavior of callback destruction and lock acquisition
