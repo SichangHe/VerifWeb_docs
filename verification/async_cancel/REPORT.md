@@ -3,7 +3,7 @@
 
 As of 2026-11-13, Verus supports some real `async fn` bodies and `.await`, but a proof of their completion postconditions does not prove cancellation safety. Our executable counterexample verifies, suspends, and is dropped with the intermediate state still visible. Extending cancellation verification is a smaller and more specific problem than implementing async from scratch.
 
-Follow-up: the human authorized proceeding with our choice of approach. We reproduced the real Pingora failure and the proposed repair, then checked a narrow property of the compiler-generated cancellation path. See [the real-library regression](real_pingora/README.md) and [the MIR check and remaining obligations](MIR_CHECK.md). This advances source correspondence without claiming a completed library proof.
+Follow-up: the human authorized proceeding with our choice of approach. We reproduced the real Pingora failure and the proposed repair, then checked a narrow property of the compiler-generated cancellation path. See [the real-library regression](real_pingora/README.md) and [the MIR check and remaining obligations](MIR_CHECK.md). The [cleanup audit](CLEANUP_MIR.md) and [ownership audit](OWNERSHIP_MIR.md) now record conditional arguments about the actual compiler output, with fingerprints detecting changes to the reviewed fragments. Verus proves the abstract map-effect lemma in [cleanup_contract.rs](cleanup_contract.rs); correspondence between that lemma and the real destructor remains manually justified. These are not a completed library proof.
 
 ## Evidence and version boundary
 
@@ -52,7 +52,7 @@ Our destructor probes also establish that Verus accepts cleanup through an exclu
 
 ### Pingora cache lookup
 
-Reporter YZL0v3ZZ's [issue #931](https://github.com/cloudflare/pingora/issues/931) states: “`pingora-memory-cache::RTCache::get()` can leak a per-key lookup-coalescing lock if the cache-miss writer future is cancelled while it is awaiting the user-provided `Lookup::lookup()` callback.” It remains open. We inspected the [pinned source](https://github.com/cloudflare/pingora/blob/e6e677fe9b58555140ab7bd14feff035392b3530/pingora-memory-cache/src/read_through.rs#L150-L282): `lockers.insert(hashed_key, new_lock2)` precedes `let value = CB::lookup(key, extra).await`; `my_write.lock.add_permits(10)` and `lockers.remove(&hashed_key)` follow it. We did not independently execute the Pingora reproduction.
+Reporter YZL0v3ZZ's [issue #931](https://github.com/cloudflare/pingora/issues/931) states: “`pingora-memory-cache::RTCache::get()` can leak a per-key lookup-coalescing lock if the cache-miss writer future is cancelled while it is awaiting the user-provided `Lookup::lookup()` callback.” It remains open. We inspected the [pinned source](https://github.com/cloudflare/pingora/blob/e6e677fe9b58555140ab7bd14feff035392b3530/pingora-memory-cache/src/read_through.rs#L150-L282): `lockers.insert(hashed_key, new_lock2)` precedes `let value = CB::lookup(key, extra).await`; `my_write.lock.add_permits(10)` and `lockers.remove(&hashed_key)` follow it. We subsequently executed the buggy and repaired versions; see [the reproduction](real_pingora/README.md).
 
 The failure is a good first target because its safety condition can be stated locally: after dropping a writer, its lookup marker cannot remain as an unreleasable zero-permit lock. Existing readers holding an `Arc` also need notification, so deleting the map entry alone is insufficient. Cleanup must identify the lock instance it owns, so an old writer cannot remove a replacement writer's entry.
 

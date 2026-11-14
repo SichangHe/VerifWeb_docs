@@ -42,6 +42,9 @@ reproduction
   - Ruff and basedpyright reported no findings
 
 remaining proof obligations
+- follow-up audits are recorded in [ownership](OWNERSHIP_MIR.md) and [cleanup](CLEANUP_MIR.md)
+  - audit fingerprints detect changes to reviewed fragments; they do not discharge semantic proof obligations
+  - Verus verifies the abstract map-effect lemma, not its correspondence to the destructor
 - establish that publishing a writer lock initializes this slot to `Some` with that same lock
   - a type-correct but empty guard slot would pass this control-flow check
 - verify the real destructor's notification and conditional removal
