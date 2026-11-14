@@ -3,6 +3,8 @@
 
 As of 2026-11-13, Verus supports some real `async fn` bodies and `.await`, but a proof of their completion postconditions does not prove cancellation safety. Our executable counterexample verifies, suspends, and is dropped with the intermediate state still visible. Extending cancellation verification is a smaller and more specific problem than implementing async from scratch.
 
+Follow-up: the human authorized proceeding with our choice of approach. We reproduced the real Pingora failure and the proposed repair, then checked a narrow property of the compiler-generated cancellation path. See [the real-library regression](real_pingora/README.md) and [the MIR check and remaining obligations](MIR_CHECK.md). This advances source correspondence without claiming a completed library proof.
+
 ## Evidence and version boundary
 
 We tested the latest available rolling binary, `0.2026.11.05.31e44e6`, then built and tested main at `6ae5f7b97c6403789fc1f12117ea8b2f0092289c` (`0.2026.11.13.6ae5f7b`) with its matching standard library. The latest stable release, `0.2026.11.02.8bf68ee`, predates the async soundness repair merged November 4. The rolling binary predates the cross-module repair merged November 13. Results on these versions must not be conflated. [UPSTREAM.md](UPSTREAM.md) records issue status, contributors, and source quotations; [TESTS.md](TESTS.md) records the support probes.
@@ -94,7 +96,7 @@ An application can hand the operation to an owning task and let cancellation dis
 
 Recommendation: first verify a narrow Pingora-style writer-ownership invariant against the real buggy and fixed implementation paths, with an explicit list of trusted dependency specifications. Require the buggy version to fail the cancellation obligation and the guard-based repair to pass. The deliverable must identify how actual Rust destruction is connected to the proof; otherwise label it a model experiment.
 
-The human's scope decision is whether modifying the production implementation into an explicit verified future is acceptable, or whether preserving its `async fn` form is required. The latter favors extension A or compiler-derived translation; the former permits B. This study does not establish that either route is cheap or already supported end to end.
+The human subsequently authorized choosing the approach. We chose compiler-derived checking first, preserving the production async body while examining its actual destruction paths. This study does not establish that either source rewriting or compiler-derived checking already supports a complete cancellation proof.
 
 For openraft and Automerge networking, ordinary async control flow is no longer a blanket reason to stop. The probes and upstream limitations identify what can be attempted now. Cancellation, concurrent state changes, unsupported traits/APIs, and the connection to compiled code remain independent obligations. The existing [openraft report](../raft_membership/REPORT.md) explicitly describes a “hand transliteration”; these findings do not close that gap.
 
