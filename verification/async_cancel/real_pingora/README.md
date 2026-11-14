@@ -57,6 +57,12 @@ The upstream checkout does not track that lockfile; a fresh resolution may diffe
 
 ## Reproduce
 
+For a single compilation followed immediately by verification, use [build and
+check](BUILD_CHECK.md). It selects only freshly generated artifacts, avoiding the
+mixed-build mistake recorded in [source mutation checks](SOURCE_MUTATIONS.md).
+The commands below also reproduce the runtime regression and retain MIR for
+individual checker experiments.
+
 Run from this directory. Set `EXPECTED_END` to the expected UTC finish time.
 Each `run` invocation uses two cores and a 16 GiB/512-task scope. Set the user
 D-Bus environment if the session has not provided it.

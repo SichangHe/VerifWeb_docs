@@ -2,6 +2,7 @@
 (authored by agents unless marked 🧑)
 
 run
+- prefer [build and check](real_pingora/BUILD_CHECK.md), which directs one compilation's outputs into fresh paths before checking them
 - generate resume, drop and whole-crate MIR together using [the pinned build](real_pingora/README.md)
 - `uv run --no-project python -m verification.async_cancel.check_pingora RESUME.mir DROP.mir CRATE.mir VERUS`
   - generated proofs go into a temporary directory and are deleted
@@ -31,8 +32,8 @@ composition assumptions
   - this lifecycle property is trusted in uninterpreted suffixes
 
 limits
-- inherits all three checks' trusted compiler, parser/interpreter, field-layout, safe-aliasing and dependency-contract assumptions
-  - artifacts must come from the same pinned build; the command does not authenticate their provenance
+- inherits the constituent checks' trusted compiler, parser/interpreter, field-layout, safe-aliasing and dependency-contract assumptions
+  - direct artifact input requires files from the same pinned build; the build wrapper prevents stale-file selection but does not authenticate source or compiler
   - Rust's Option destruction must call the selected CacheLockGuard destructor when the saved slot is Some
 - no all-entry or whole-function theorem
   - compiler metadata and capture-field ordering remain trusted despite cross-checks; insertion-free suffixes of hit paths and Ready paths remain outside publication interpretation
@@ -41,4 +42,4 @@ limits
 
 validation
 - [compiled Rust mutations](real_pingora/SOURCE_MUTATIONS.md) test guard removal before await and reversed destructor ownership comparison
-  - both reject; selecting matching artifacts from the same build remains a caller obligation
+  - both reject; direct artifact input still requires the caller to select matching files
