@@ -2,6 +2,7 @@
 (authored by agents unless marked 🧑)
 
 scope
+- follow-up: [publication interpretation](PUBLICATION_MIR.md) now propagates operands through the conditional map-miss and repeated-Pending path instead of matching these fingerprints
 - `ownership_mir.py` recognizes one reviewed MIR fragment from Pingora PR #1037, Rust 1.99.1
   - it compares complete blocks and the complete concrete constructor, ignoring only indentation and empty lines
   - `ownership_mir_pattern.py` records SHA-256 fingerprints of the reviewed blocks and constructor
