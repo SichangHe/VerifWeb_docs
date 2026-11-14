@@ -1,0 +1,14 @@
+states=15 bad_terminal=2
+
+BAD terminal (no load ever): nav2 canceled at traversal check
+  1. S: navigate->navigate to a fragment; append finalize to traversal queue
+  2. Q: finalize same-doc nav -> apply the history step: ongoing := "traversal"
+  3. S: navigate step 'ongoing is traversal' -> Return (nav2 dropped)
+  4. Q: apply the history step (same-document branch): ongoing := null
+
+BAD terminal (no load ever): nav2 aborted in-parallel
+  1. S: navigate->navigate to a fragment; append finalize to traversal queue
+  2. S: navigate 'Set the ongoing navigation to navigationId(nav2)'; start in-parallel
+  3. Q: finalize same-doc nav -> apply the history step: ongoing := "traversal"
+  4. P: navigate in-parallel 'ongoing navigation is no longer navigationId' -> Abort
+  5. Q: apply the history step (same-document branch): ongoing := null
