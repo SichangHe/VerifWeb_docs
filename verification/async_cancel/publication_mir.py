@@ -18,6 +18,131 @@ class Value:
     items: tuple["Value", ...] = ()
 
 
+@dataclass(frozen=True)
+class FrameLayout:
+    """Capture values and suspension slots checked against compiler metadata."""
+
+    inputs: dict[str, Value]
+    initial_state: str
+    guard_slot: str
+    guard_state: str
+
+
+def frame_layout(resume: str, emitted: str) -> FrameLayout | str:
+    """Cross-check factory operands, raw debug fields and saved layout declarations."""
+    factories = [
+        body
+        for body in functions(emitted)
+        if re.match(r"fn read_through::[^\n(]+::get\(", body)
+    ]
+    if len(factories) != 1:
+        return "missing unique coroutine factory"
+    factory = factories[0]
+    signature = re.match(
+        r"fn .*::get\((_\d+): &RTCache<K, T, CB, S>, (_\d+): &K, (_\d+): Option<Duration>, (_\d+): Option<&S>\) -> \{async fn body of RTCache<K, T, CB, S>::get\(\)\} \{",
+        factory,
+    )
+    parsed = blocks(factory)
+    if not signature or isinstance(parsed, str) or set(parsed) != {"bb0"}:
+        return "unsupported coroutine factory signature or body"
+    lines = parsed["bb0"]
+    aggregate = re.fullmatch(r"_0 = \{coroutine@[^}]+\} \{ (.+) \};", lines[0])
+    if len(lines) != 2 or lines[1] != "return;" or not aggregate:
+        return "unsupported coroutine capture initialization"
+    roles = ("self", "key", "ttl", "extra")
+    types = ("&RTCache<K, T, CB, S>", "&K", "Option<Duration>", "Option<&S>")
+    values = (
+        Value("view", items=(Value("self"),)),
+        Value("view", items=(Value("lookup_key"),)),
+        Value("ttl"),
+        Value("extra"),
+    )
+    params = dict(zip(signature.groups(), values, strict=True))
+    captures: list[tuple[str, str]] = re.findall(
+        r"(\w+): (?:copy|move) (_\d+)", aggregate[1]
+    )
+    if len(captures) != 4 or {name for name, _ in captures} != set(roles):
+        return "unsupported coroutine capture fields"
+    if not re.fullmatch(
+        r"\w+: (?:copy|move) _\d+(?:, \w+: (?:copy|move) _\d+){3}", aggregate[1]
+    ):
+        return "unsupported coroutine capture operands"
+    inputs: dict[str, Value] = {}
+    pointers: set[str] = set()
+    for index, (name, operand) in enumerate(captures):
+        debug: list[tuple[str, str, str]] = re.findall(
+            rf"^    debug {name} => \(\(\*(_\d+)\)\.(\d+): (.+)\);$", resume, re.M
+        )
+        role = roles.index(name)
+        if (
+            len(debug) != 1
+            or debug[0][1] != str(index)
+            or short_type(debug[0][2]) != types[role]
+        ):
+            return "raw capture debug projection disagrees with factory"
+        if params.get(operand) != values[role]:
+            return "factory captures the wrong parameter"
+        pointers.add(debug[0][0])
+        inputs[f"frame:input:{index}"] = params[operand]
+    fields: list[tuple[str, str]] = re.findall(
+        r"^        field (_s\d+): (.+);$", resume, re.M
+    )
+    declared = dict(fields)
+    variants: list[tuple[str, str]] = re.findall(
+        r"^            \w+\s*\((\d+)\): \[([^]]*)\],$", resume, re.M
+    )
+    slots = {
+        state: entries.split(", ") if entries else [] for state, entries in variants
+    }
+    unresumed: list[str] = re.findall(
+        r"^            Unresumed\((\d+)\): \[\],$", resume, re.M
+    )
+    if (
+        len(declared) != len(fields)
+        or len(slots) != len(variants)
+        or len(unresumed) != 1
+    ):
+        return "invalid coroutine field or variant declarations"
+    saved: dict[str, tuple[str, str]] = {}
+    for name, ty in zip(
+        (*roles, "hashed_key", "_guard"),
+        (*types, "u64", "Option<CacheLockGuard<'_>>"),
+        strict=True,
+    ):
+        identities: list[str] = re.findall(
+            rf"coroutine debug {name} => (_s\d+);", resume
+        )
+        projections: list[tuple[str, str, str, str]] = re.findall(
+            rf"debug {name} => \(\(\(\*(_\d+)\) as variant#(\d+)\)\.(\d+): (.+)\);",
+            resume,
+        )
+        if (
+            len(identities) != 1
+            or len(projections) != 1
+            or declared.get(identities[0]) != ty
+        ):
+            return "saved field lacks matching typed compiler identity"
+        pointer, variant, index, projected_type = projections[0]
+        entries = slots.get(variant, [])
+        if (
+            pointer not in pointers
+            or int(index) >= len(entries)
+            or entries[int(index)] != identities[0]
+            or short_type(projected_type) != ty
+        ):
+            return "saved projection disagrees with coroutine layout"
+        saved[name] = (variant, index)
+    if len(pointers) != 1:
+        return "capture projections disagree on frame pointer"
+    variant, index = saved["_guard"]
+    return FrameLayout(inputs, unresumed[0], f"frame:{variant}:{index}", variant)
+
+
+def short_type(text: str) -> str:
+    """Normalize only namespace prefixes differing between these MIR printouts."""
+    return re.sub(r"(?:std::option::|std::time::|read_through::)", "", text)
+
+
 @dataclass
 class State:
     """Concrete symbolic path, including its historical publication identity."""
@@ -492,13 +617,15 @@ def check(
         for body in functions(emitted)
         if "::get::{closure#0}::{closure#0}(" in body.splitlines()[0]
     ]
-    frame = re.search(r"debug self => \(\(\(\*(_\d+)\) as variant#7\)\.0:", resume)
-    if isinstance(program, str) or len(constructors) != 1 or not frame:
+    layout = frame_layout(resume, emitted)
+    if isinstance(layout, str):
+        return layout
+    if isinstance(program, str) or len(constructors) != 1:
         return "unsupported function, constructor, or frame layout"
     constructor = constructors[0]
     published = False
     for hits in product((False, True), repeat=3):
-        result = check_case(program, constructor, prefix, hits)
+        result = check_case(program, constructor, prefix, hits, layout)
         if isinstance(result, str):
             return result
         published |= result
@@ -510,17 +637,15 @@ def check_case(
     constructor: str,
     prefix: tuple[str, ...],
     hits: tuple[bool, ...],
+    layout: FrameLayout,
 ) -> bool | str:
     """Return whether this outcome schedule publishes, or its proof failure."""
     initial = State(
         {
             "_1": Value("tuple", items=(Value("view", items=(Value("frame"),)),)),
             "_2": Value("context_raw"),
-            "state": Value("int", "0"),
-            "frame:input:0": Value("view", items=(Value("self"),)),
-            "frame:input:1": Value("view", items=(Value("lookup_key"),)),
-            "frame:input:2": Value("ttl"),
-            "frame:input:3": Value("extra"),
+            "state": Value("int", layout.initial_state),
+            **layout.inputs,
         },
         hits=hits,
     )
@@ -540,9 +665,9 @@ def check_case(
     )
     if (
         not expected
-        or first.env.get("frame:7:8") != expected
+        or first.env.get(layout.guard_slot) != expected
         or first.env.get("_0") != Value("pending")
-        or first.env.get("state") != Value("int", "7")
+        or first.env.get("state") != Value("int", layout.guard_state)
         or first.locked
     ):
         return "Pending lacks the matching guard or expected suspension state"

@@ -9,6 +9,7 @@ from verification.async_cancel.check_drop_paths import check as check_drop
 from verification.async_cancel.cleanup_semantics import translate
 from verification.async_cancel.entry_coverage import check as check_coverage
 from verification.async_cancel.publication_mir import check as check_publication
+from verification.async_cancel.publication_mir import frame_layout
 
 
 def main() -> int:
@@ -31,9 +32,15 @@ def main() -> int:
         if error:
             print(f"ownership rejected: {error}")
             return 1
+        layout = frame_layout(resume, emitted)
+        if isinstance(layout, str):
+            print(f"frame layout rejected: {layout}")
+            return 1
         reports = check_drop(resume, drop_path.read_text(), "CacheLockGuard")
+        slot = layout.guard_slot.rsplit(":", 1)[1]
         expected = (
-            "variant 7 slot 8: every normal return follows successful guard-slot drop"
+            f"variant {layout.guard_state} slot {slot}: "
+            "every normal return follows successful guard-slot drop"
         )
         if expected not in reports:
             print("drop check did not cover the ownership check's guard slot")

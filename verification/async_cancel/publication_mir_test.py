@@ -6,7 +6,12 @@ from itertools import product
 from pathlib import Path
 
 from verification.async_cancel.cleanup_mir_check import functions
-from verification.async_cancel.publication_mir import blocks, check, check_case
+from verification.async_cancel.publication_mir import (
+    blocks,
+    check,
+    check_case,
+    frame_layout,
+)
 from verification.async_cancel.entry_coverage import check as check_coverage
 
 
@@ -35,15 +40,44 @@ def main() -> None:
     assert check(resume, emitted, prefix) is None
     assert check(resume, emitted, ("bb0", "bb99999")) is not None
     assert check(rename(resume), rename(emitted)) is None
+    reordered = (
+        resume.replace("((*_346).0:", "((*_346).999:")
+        .replace("((*_346).1:", "((*_346).0:")
+        .replace("((*_346).999:", "((*_346).1:")
+    )
+    factory_reordered = replace(
+        emitted,
+        "{ self: copy _1, key: copy _2, ttl: copy _3, extra: copy _4 }",
+        "{ key: copy _2, self: copy _1, ttl: copy _3, extra: copy _4 }",
+    )
+    assert check(reordered, factory_reordered) is None
+    guard_reordered = (
+        resume.replace("as variant#7).8:", "as variant#7).999:")
+        .replace("as variant#7).9:", "as variant#7).8:")
+        .replace("as variant#7).999:", "as variant#7).9:")
+    )
+    guard_reordered = replace(
+        guard_reordered, "_s8, _s16, _s17, _s19", "_s8, _s17, _s16, _s19"
+    )
+    assert check(guard_reordered, emitted) is None
+    state_renumbered = resume.replace("variant#7", "variant#8")
+    state_renumbered = replace(state_renumbered, "Suspend4 (7):", "Suspend4 (8):")
+    state_renumbered = replace(state_renumbered, "7: bb441", "8: bb441")
+    state_renumbered = replace(
+        state_renumbered, "discriminant((*_346)) = 7;", "discriminant((*_346)) = 8;"
+    )
+    assert check(state_renumbered, emitted) is None
     program = blocks(resume)
     assert not isinstance(program, str)
+    layout = frame_layout(resume, emitted)
+    assert not isinstance(layout, str), layout
     constructor = next(
         body
         for body in functions(emitted)
         if "::get::{closure#0}::{closure#0}(" in body.splitlines()[0]
     )
     assert [
-        check_case(program, constructor, prefix, hits)
+        check_case(program, constructor, prefix, hits, layout)
         for hits in product((False, True), repeat=3)
     ] == [True, False, False, False, False, False, False, False]
     assert (
@@ -58,6 +92,13 @@ def main() -> None:
         is None
     )
     mutations = [
+        (
+            "field _s16: Option<CacheLockGuard<'_>>;",
+            "field _s16: Option<Arc<CacheLock>>;",
+        ),
+        ("_s8, _s16, _s17, _s19", "_s8, _s17, _s16, _s19"),
+        ("coroutine debug _guard => _s16;", "coroutine debug _guard => _s7;"),
+        ("debug key => ((*_346).1: &K);", "debug key => ((*_346).0: &K);"),
         (
             "    bb44: {\n        StorageDead(_57);\n        StorageDead(_56);\n        goto -> bb55;",
             "    bb44: {\n        StorageDead(_57);\n        StorageDead(_56);\n        goto -> bb31;",
@@ -122,6 +163,9 @@ def main() -> None:
         assert check(replace(resume, before, after), emitted) is not None, before
     before = "_0 = CacheLockGuard::<'_> { lockers: copy _3, hashed_key: move _4, lock: move _5 };"
     after = "_0 = CacheLockGuard::<'_> { lockers: copy _3, hashed_key: move _4, lock: copy _4 };"
+    assert check(resume, replace(emitted, before, after)) is not None
+    before = "{ self: copy _1, key: copy _2, ttl: copy _3, extra: copy _4 }"
+    after = "{ self: copy _1, key: copy _1, ttl: copy _3, extra: copy _4 }"
     assert check(resume, replace(emitted, before, after)) is not None
     before = "_5 = <Arc<CacheLock> as Clone>::clone(copy _2) -> [return: bb1, unwind continue];"
     after = "_5 = CacheLock::new_arc() -> [return: bb1, unwind continue];"

@@ -11,12 +11,12 @@ scope
   - pending callback polls preserve the historical inserted allocation, map and key in a Some guard
   - one interpreted state-7 resume cycle reproduces the complete retained frame environment
     - the same transition can repeat, with fresh poll context and discarded locals
-- no fingerprints or accepted-block instruction templates
+- publication path uses no fingerprints or accepted-block instruction templates
   - interpreter follows actual branch targets and resolves operands, borrows, tuple projections, Option discriminants, closure captures and frame assignments
   - the concrete constructor is interpreted with actual captures and Arc argument
   - unsupported executed statements, calls, argument sorts and cycles reject
 - this does not establish all-entry or all-publication coverage
-  - initial state 0, frame schema and resume state remain explicit scope restrictions
+  - checked compiler layout and initial Unresumed state remain explicit scope restrictions
   - hit branches are interpreted through their separating dispatch; their insertion-free suffix behavior is not interpreted
   - Ready, unwind and cleanup behavior remain outside this dataflow interpretation
   - structural checks separately exclude a normal Ready-to-Pending path
@@ -48,14 +48,19 @@ state and calls
 
 trusted input
 - paired well-typed compiler-generated MIR from the same pinned build described in [real_pingora/README.md](real_pingora/README.md)
-  - expected compiler block formatting and hard-coded get frame schema
-  - local declaration types and coroutine layout are not revalidated
+  - expected compiler block formatting, truthful debug metadata and capture-aggregate field ordering
+  - factory signature and actual capture operands are checked against raw debug projections
+    - supported factory directly returns one capture aggregate from its typed parameters
+  - relevant saved debug identities/types/projections are checked against coroutine field and variant declarations
+    - self, key, ttl, extra, hashed_key and guard
+    - initial discriminant and guard slot/state are read from metadata
+  - other local declaration types, all physical layout details and ABI validity are not independently proved
   - constructor closure identity is matched against the call and captures
   - `_0`, `_1`, `_2` retain Rust return/parameter conventions
 - safe Rust aliasing and standard library contracts
   - private guard slots cannot be mutated through callback arguments
-- initial state-0 capture fields 0/1/2/3 denote self/key/ttl/extra according to the trusted compiler schema
-  - saved variant fields and hashed key are derived by interpretation, not seeded
+- initial capture values come from the checked factory operands
+  - saved variant values and hashed key are derived by interpretation, not seeded
 
 validation
 - export `PINGORA_RESUME_MIR` and `PINGORA_EMITTED_MIR` to the paired real artifacts
@@ -69,7 +74,9 @@ validation
   - all eight schedules checked; only all-miss publishes in the original artifact
   - swapping the initial map hit/miss targets preserves this cancellation property and is accepted
   - adding a hit-to-insert route rejects through structural coverage
+  - changed guard declaration/layout/debug identity, raw key projection and factory key operand reject
+  - consistent raw capture reordering, guard-slot reordering and suspension-state renumbering are accepted
   - malformed/type-invalid mutants test rejection behavior, not newly compiled Rust regressions
 
 next obligation
-- interpret Ready/unwind/cleanup behavior, validate the frame schema and account for implicit call effects before calling this whole-function conformance
+- interpret Ready/unwind/cleanup behavior and account for implicit call effects before calling this whole-function conformance

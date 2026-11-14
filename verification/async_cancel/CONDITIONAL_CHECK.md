@@ -17,17 +17,28 @@ checked connection
   - cases leaving the insertion-reaching prefix before publication cannot reach the sole direct insertion
   - publishing cases follow normal-return calls and Pending polls
   - resumed Pending transitions preserve that abstract guard invariant
+  - capture operands and saved guard positions are cross-checked against the compiler's factory, debug projections and typed coroutine layout
 - [drop analysis](MIR_CHECK.md) checks that this same slot is preserved until its successful destruction on every normal-return cancellation path
 - [cleanup translation](CLEANUP_SEMANTICS.md) derives Verus obligations from the actual guard destructor
   - its locked map snapshot loses the owner's entry, preserves any replacement and leaves other keys unchanged
   - notification precedes map-lock acquisition
   - the map property holds immediately before releasing the map lock
 
+composition assumptions
+- every poll before cancellation returns Pending; no polling after Ready
+- rustc's coroutine lifecycle never returns an already-polled future to Unresumed
+  - needed for insertion-free suspended paths: later resume routes cannot reach insertion without violating the checked unique prefix
+  - this lifecycle property is trusted in uninterpreted suffixes
+
 limits
 - inherits all three checks' trusted compiler, parser/interpreter, field-layout, safe-aliasing and dependency-contract assumptions
   - artifacts must come from the same pinned build; the command does not authenticate their provenance
   - Rust's Option destruction must call the selected CacheLockGuard destructor when the saved slot is Some
 - no all-entry or whole-function theorem
-  - initial capture schema remains trusted; insertion-free suffixes of hit paths and Ready paths remain outside publication interpretation
+  - compiler metadata and capture-field ordering remain trusted despite cross-checks; insertion-free suffixes of hit paths and Ready paths remain outside publication interpretation
   - no panic-completion, termination, waiter progress or post-release map-state guarantee
   - successful checks do not establish unconditional library cancellation safety
+
+validation
+- [compiled Rust mutations](real_pingora/SOURCE_MUTATIONS.md) test guard removal before await and reversed destructor ownership comparison
+  - both reject; selecting matching artifacts from the same build remains a caller obligation
