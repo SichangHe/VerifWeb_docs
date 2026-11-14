@@ -48,12 +48,19 @@ Each linked source is the exact input producing the quoted verifier output.
 
 Version comparison
 
+- Current main `6ae5f7b`, built as Verus `0.2026.11.13.6ae5f7b`, passed the full
+  `run.sh` suite with `EXPECT_CROSS_MODULE_CREATE_EXIT=0`
+  - release build, Rust `1.99.1`, matching source-built `vstd`
+  - the #3439 reproduction now verifies; all other expected probe outcomes remain unchanged
+  - the verified-and-compiled cancellation example still prints “state after cancellation: 1”
+  - the matching standard library build reports “verification results:: 2273 verified, 0 errors”
 - Verus `0.2026.11.02.8bf68ee` also verifies `cross_module.rs`
   - “verification results:: 2 verified, 0 errors”
 - that version rejects the same `custom_future.rs`
   - “error[E0405]: cannot find trait `FutureSpecImpl` in module `vstd::future`”
   - this establishes an API difference, not that all handwritten futures were impossible on that version
 - both executables emitted the loader warning “weak version `GLIBC_2.39' not found” but continued to perform verification
+- here “both” refers to the downloaded November 2 and November 5 binaries; the source-built November 13 installation does not need that workaround
 
 Reproduction
 
@@ -76,3 +83,42 @@ Test design
   - it produced “error: Verus internal error: ill-formed `unwrap_parameter` header”
   - moving extraction into the function body allowed the intended await check
   - that incidental internal error is not evidence that await itself is unsupported
+
+Cargo integration on current main
+
+A minimal Cargo binary containing exactly [basic.rs](probes/basic.rs), with
+`edition = "2021"`, a path dependency on the same checkout's `source/vstd`, and
+`[package.metadata.verus] verify = true`, reports
+“verification results:: 2 verified, 0 errors”. Its dependency reports
+“verification results:: 2273 verified, 0 errors”. This checks a simple async
+Cargo project; it does not reproduce every configuration in #2595.
+
+To reproduce, place a `cargo-probe` directory beside a Verus checkout named
+`verus` at commit `6ae5f7b`, copy `probes/basic.rs` into its `src/main.rs`, and
+use this `Cargo.toml`:
+
+```toml
+[package]
+name = "async-head-probe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vstd = { path = "../verus/source/vstd" }
+
+[package.metadata.verus]
+verify = true
+```
+
+Build Verus and its matching vstd following upstream `BUILD.md`. From
+`cargo-probe`, run the checkout's `cargo-verus` with Rust `1.99.1`:
+Use the local `cpu-run LOW` wrapper and memory/process limits for this two-core build, as required by the task's compute instructions.
+
+```sh
+RUSTUP_TOOLCHAIN=1.99.1 RUSTC_BOOTSTRAP=1 CARGO_BUILD_JOBS=2 \
+  ../verus/source/target-verus/release/cargo-verus verify --release -- --num-threads 2
+```
+
+Set `VERUS_Z3_PATH` to Z3 4.16.0 if it is not beside the verifier. The executed
+run additionally shared the checkout's Cargo target directory; that is a
+build-cache choice, not a verification assumption.

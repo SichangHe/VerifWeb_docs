@@ -5,7 +5,13 @@ As of 2026-11-13, Verus supports some real `async fn` bodies and `.await`, but a
 
 ## Evidence and version boundary
 
-We tested the latest available rolling binary, `0.2026.11.05.31e44e6`, and inspected main at `6ae5f7b97c6403789fc1f12117ea8b2f0092289c`. The latest stable release, `0.2026.11.02.8bf68ee`, predates the async soundness repair merged November 4. The rolling binary predates the cross-module repair merged November 13. Results on these versions must not be conflated. [UPSTREAM.md](UPSTREAM.md) records issue status, contributors, and source quotations; [TESTS.md](TESTS.md) records the support probes.
+We tested the latest available rolling binary, `0.2026.11.05.31e44e6`, then built and tested main at `6ae5f7b97c6403789fc1f12117ea8b2f0092289c` (`0.2026.11.13.6ae5f7b`) with its matching standard library. The latest stable release, `0.2026.11.02.8bf68ee`, predates the async soundness repair merged November 4. The rolling binary predates the cross-module repair merged November 13. Results on these versions must not be conflated. [UPSTREAM.md](UPSTREAM.md) records issue status, contributors, and source quotations; [TESTS.md](TESTS.md) records the support probes.
+
+The rolling-release probes verify async return postconditions, a mutable borrow spanning an await, and a simple handwritten `Future::poll` with its result specification. False completion postconditions fail. Inline async blocks produce “Verus does not currently support coroutine types”; async trait declarations produce “Verus does not currently support `impl Trait` types in trait definitions”. The exact cross-module future-creation case in #3439 fails, while a cross-module awaiting caller works. The #2541 compiler crash does not reproduce, but that example verifies zero functions and therefore does not demonstrate verified async trait support.
+
+The same suite passes its expected outcomes on November 13 main, with the #3439 case changed to successful verification. The compiled cancellation experiment still leaves state `1`. Thus today's cross-module fix is confirmed by execution; it does not change the cancellation conclusion.
+
+A minimal Cargo project using the same source revision's `vstd` also reports “verification results:: 2 verified, 0 errors”. The generic claim that Cargo cannot verify any async function does not hold for this matched current build. This does not establish support for arbitrary dependency graphs or reproduce the original reporter's full environment.
 
 The locally supplied solver works with the rolling release; its bundled Z3 failed with `version 'GLIBC_2.38' not found`. Setting `VERUS_Z3_PATH` to the compatible local Z3 resolves that environment failure. The launcher still prints a weak `GLIBC_2.39` warning, but verification and compilation succeed.
 
