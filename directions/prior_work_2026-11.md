@@ -11,7 +11,7 @@ Verdicts: still open / partly done / done. "Changed" marks a verdict that differ
 ## Priority 1 (directions the human kept or found interesting)
 
 - verify standards (directions/verify_standards.md): still open. No model checking of concurrent WHATWG algorithms found; neighbours are WebSpec/WIM security models, ESMeta/SpecTec (sequential specs), RFCScope (LLM ambiguity).
-- async cancel-safety (verification/async_cancel/REPORT.md): still open. New must-cite neighbours: Lion (SOSP 2026) and Li-Beschastnikh-Summers (arXiv 2026) verify async runtime liveness, not cancellation.
+- async cancel-safety (verification/async_cancel/REPORT.md): partly covered by Lion at the runtime level (CHANGED, correction relayed from vl_async.md). Lion verifies a waiter-cancellation step (`remove_step` + `CancelWaker`) in its runtime kernel, but its real Drop/notification glue is trusted and some task-abort traces are excluded; see verification/async_cancel/LION.md. Still open: cancellation safety of application code (state consistent when a user future is dropped at an await), e.g. the Pingora case.
 - bounded memory vs hostile peer (verification/bounded_memory/REPORT.md): still open. Medusa (2024) and HTTP/2/QUIC attack papers find memory-exhaustion bugs; no bound proofs.
 - Tauri IPC permissions (directions/vlm48_dirs/d.md C2): still open. Only Electron fuzzing/defense and Deno sandbox studies.
 - distributed protocols beyond Raft (directions/distributed_protocols.md): still open for all Rust code. Percolator now has a CSP model (COMPSAC 2024), so its protocol level is partly done; Tendermint has protocol model checking.
