@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from verification.async_cancel.publication_mir import check
+from verification.async_cancel.entry_coverage import check as check_coverage
 
 
 def replace(text: str, before: str, after: str) -> str:
@@ -27,8 +28,31 @@ def main() -> None:
     resume = Path(os.environ["PINGORA_RESUME_MIR"]).read_text()
     emitted = Path(os.environ["PINGORA_EMITTED_MIR"]).read_text()
     assert check(resume, emitted) is None
+    prefix = check_coverage(resume)
+    assert isinstance(prefix, tuple), prefix
+    assert check(resume, emitted, prefix) is None
+    assert check(resume, emitted, ("bb0", "bb99999")) is not None
     assert check(rename(resume), rename(emitted)) is None
     mutations = [
+        ("[0: bb444, 1: bb443", "[0: bb14, 1: bb443"),
+        (
+            "= copy ((*_346).0: &read_through::RTCache<K, T, CB, S>);",
+            "= copy ((*_346).1: &read_through::RTCache<K, T, CB, S>);",
+        ),
+        ("= copy ((*_346).1: &K);", "= copy ((*_346).0: &K);"),
+        (
+            "= copy ((*_346).3: std::option::Option<&S>);",
+            "= copy ((*_346).2: std::option::Option<&S>);",
+        ),
+        (
+            "_21 = copy (((*_346) as variant#7).1: &K);",
+            "_21 = copy (((*_346) as variant#7).0: &K);",
+        ),
+        (
+            "_9 = MemoryCache::<K, T>::get::<K>(move _10, move _11)",
+            "_9 = MemoryCache::<K, T>::get::<K>(move _11, move _10)",
+        ),
+        ("[0: bb14, 1: bb15, otherwise: bb13]", "[0: bb15, 1: bb14, otherwise: bb13]"),
         (
             "_70 = <Arc<CacheLock> as Clone>::clone(move _71)",
             "_70 = CacheLock::new_arc()",

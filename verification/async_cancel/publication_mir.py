@@ -25,6 +25,7 @@ class State:
     publication: tuple[Value, ...] | None = None
     locked: bool = False
     allocations: int = 0
+    trace: list[str] = field(default_factory=list)
 
 
 def blocks(text: str) -> dict[str, list[str]] | str:
@@ -97,6 +98,8 @@ def location(text: str, state: State) -> str | None:
         variant = re.fullmatch(r"(.+) as variant#(\d+)", base)
         if variant and evaluate(variant[1], state) == Value("frame"):
             return f"frame:{variant[2]}:{match[2]}"
+        if evaluate(base, state) == Value("frame"):
+            return f"frame:input:{match[2]}"
     return None
 
 
@@ -129,6 +132,10 @@ def evaluate(text: str, state: State) -> Value | None:
             return value.items[index] if index < len(value.items) else None
         if value == Value("self") and index == 2:
             return Value("map", "self.lockers")
+        if value == Value("self") and index == 0:
+            return Value("cache", "self.cache")
+        if value == Value("cache", "self.cache") and index == 2:
+            return Value("hasher", "self.cache.hasher")
         return None
     if text in {"const true", "const false"}:
         return Value("int", "1" if text == "const true" else "0")
@@ -200,6 +207,39 @@ def call(name: str, args: str, state: State, constructor: str) -> Value | str:
     read = [deref(value, state) for value in actual]
     write = "parking_lot::lock_api::RwLock::<parking_lot::RawRwLock, HashMap<u64, Arc<CacheLock>>>::write"
     guard = "parking_lot::lock_api::RwLockWriteGuard<'_, parking_lot::RawRwLock, HashMap<u64, Arc<CacheLock>>>"
+    read_guard = "parking_lot::lock_api::RwLockReadGuard<'_, parking_lot::RawRwLock, HashMap<u64, Arc<CacheLock>>>"
+    if name == "MemoryCache::<K, T>::get::<K>":
+        if (
+            read == [Value("cache", "self.cache"), Value("lookup_key")]
+            and state.publication is None
+        ):
+            return Value("tuple", items=(Value("none"), Value("cache_status")))
+    if name == "ahash::RandomState::hash_one::<&K>":
+        if (
+            read == [Value("hasher", "self.cache.hasher"), Value("lookup_key")]
+            and state.publication is None
+        ):
+            return Value("key", "hashed_key")
+    if name == write.removesuffix("write") + "read":
+        if (
+            read == [Value("map", "self.lockers")]
+            and state.publication is None
+            and not state.locked
+        ):
+            state.locked = True
+            return Value("read_guard", items=(Value("map", "self.lockers"),))
+    if name == f"<{read_guard} as Deref>::deref":
+        if (
+            len(read) == 1
+            and read[0]
+            and read[0].sort == "read_guard"
+            and state.locked
+            and state.publication is None
+        ):
+            return Value("view", items=read[0].items)
+    if name == "Option::<&Arc<CacheLock>>::cloned":
+        if actual == [Value("none")] and state.publication is None:
+            return Value("none")
     if name == write and len(read) == 1 and read[0] and read[0].sort == "map":
         state.locked = True
         return Value("write_guard", items=(read[0],))
@@ -292,6 +332,7 @@ def execute(
         if block not in program:
             return f"missing block {block}"
         visited.add(block)
+        state.trace.append(block)
         lines = program[block]
         next_block: str | None = None
         for index, line in enumerate(lines):
@@ -307,7 +348,11 @@ def execute(
                 invocation = re.fullmatch(r"(.+)\((.*)\)", pair[1]) if pair else None
                 if drop:
                     value = evaluate(drop[1], state)
-                    if value and value.sort == "write_guard" and state.locked:
+                    if (
+                        value
+                        and value.sort in {"write_guard", "read_guard"}
+                        and state.locked
+                    ):
                         state.locked = False
                     elif not value or value.sort != "removed":
                         return f"unsupported drop in {block}"
@@ -397,8 +442,10 @@ def construct(text: str, capture: Value, arc: Value) -> Value | str:
 
 
 # 🧑 "the human requires proving the real code conforms to the spec, not only a model"
-def check(resume: str, emitted: str) -> str | None:
-    """Check map-miss entry bb14 through Pending and one symbolic resume cycle."""
+def check(
+    resume: str, emitted: str, required_prefix: tuple[str, ...] | None = None
+) -> str | None:
+    """Check initial dispatch through cache/map misses, Pending and resumption."""
     program = blocks(resume)
     constructors = [
         body
@@ -411,20 +458,23 @@ def check(resume: str, emitted: str) -> str | None:
     constructor = constructors[0]
     initial = State(
         {
-            frame[1]: Value("view", items=(Value("frame"),)),
-            "frame:7:0": Value("view", items=(Value("self"),)),
-            "frame:7:1": Value("view", items=(Value("lookup_key"),)),
-            "frame:7:5": Value("key", "hashed_key"),
-            "frame:4:3": Value("extra"),
+            "_1": Value("tuple", items=(Value("view", items=(Value("frame"),)),)),
+            "_2": Value("context_raw"),
+            "state": Value("int", "0"),
+            "frame:input:0": Value("view", items=(Value("self"),)),
+            "frame:input:1": Value("view", items=(Value("lookup_key"),)),
+            "frame:input:2": Value("ttl"),
+            "frame:input:3": Value("extra"),
         }
     )
-    context = re.search(r"(_\d+) = std::future::ResumeTy\(", resume)
-    if not context:
-        return "missing resume context"
-    initial.env[context[1]] = Value("context", items=(Value("context_raw"),))
-    first = execute(program, "bb14", initial, constructor)
+    first = execute(program, "bb0", initial, constructor)
     if isinstance(first, str):
         return first
+    if (
+        required_prefix is not None
+        and tuple(first.trace[: len(required_prefix)]) != required_prefix
+    ):
+        return "interpreted execution does not cover the unique insertion prefix"
     expected = (
         Value("some", items=(Value("guard", items=first.publication),))
         if first.publication

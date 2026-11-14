@@ -7,7 +7,7 @@ Follow-up: the human authorized proceeding with our choice of approach. We repro
 
 ## Evidence and version boundary
 
-The [combined conditional check](CONDITIONAL_CHECK.md) runs ownership, cancellation-path and cleanup verification against paired compiler artifacts. It passed on the pinned Pingora build; its scope is the map-miss path with normal-returning calls and repeated Pending polls.
+The [combined conditional check](CONDITIONAL_CHECK.md) runs structural coverage, ownership, cancellation-path and cleanup verification against paired compiler artifacts. It passed on the pinned Pingora build. Interpretation now starts at the initial coroutine dispatch and derives the saved arguments and hashed key, conditional on cache/map misses, normal-returning calls and repeated Pending polls. Structural checks locate one direct insertion and exclude further suspension after callback Ready; they do not by themselves prove semantic coverage of every branch.
 
 We tested the latest available rolling binary, `0.2026.11.05.31e44e6`, then built and tested main at `6ae5f7b97c6403789fc1f12117ea8b2f0092289c` (`0.2026.11.13.6ae5f7b`) with its matching standard library. The latest stable release, `0.2026.11.02.8bf68ee`, predates the async soundness repair merged November 4. The rolling binary predates the cross-module repair merged November 13. Results on these versions must not be conflated. [UPSTREAM.md](UPSTREAM.md) records issue status, contributors, and source quotations; [TESTS.md](TESTS.md) records the support probes.
 

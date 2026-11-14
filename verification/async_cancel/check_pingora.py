@@ -7,6 +7,7 @@ from pathlib import Path
 
 from verification.async_cancel.check_drop_paths import check as check_drop
 from verification.async_cancel.cleanup_semantics import translate
+from verification.async_cancel.entry_coverage import check as check_coverage
 from verification.async_cancel.publication_mir import check as check_publication
 
 
@@ -22,7 +23,11 @@ def main() -> int:
     try:
         resume = resume_path.read_text()
         emitted = crate_path.read_text()
-        error = check_publication(resume, emitted)
+        prefix = check_coverage(resume)
+        if isinstance(prefix, str):
+            print(f"entry coverage rejected: {prefix}")
+            return 1
+        error = check_publication(resume, emitted, prefix)
         if error:
             print(f"ownership rejected: {error}")
             return 1
