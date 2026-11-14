@@ -106,6 +106,8 @@ For openraft and Automerge networking, ordinary async control flow is no longer 
 
 ## Literature boundary
 
+The later [Lion artifact assessment](LION.md) establishes that Lion includes verified cancellation steps, while its real-future cleanup glue remains trusted and some task-abort traces remain outside its theorem. Its utility-to-runtime chain assumes that a peer signals; checking Hyper's application cancellation-to-notification code remains a distinct proposed target. This is an artifact-based comparison, not a complete literature survey.
+
 A Google Scholar query for `Rust async cancellation formal verification` through `pb-browser-page-extract` encountered a CAPTCHA (`challenge_action_required`). We stopped without bypassing it. This study establishes tool behavior and upstream development status, not literature completeness or research novelty. No papers were downloaded or added to the collection.
 
 ## Scholar update, 2026-11-14 (changed in this pass)
@@ -117,4 +119,3 @@ Five Scholar queries (2022 onward), snippets only. No paper found that verifies 
 - Drodt, "A Complete, Formal Semantics for Rust Source Code" (arXiv 2610.06003, 2026) mentions async composition rules; not checked whether it models drop of suspended futures.
 
 Verdict: still open (unchanged), with a new must-cite neighbour (async runtime liveness verification).
-
