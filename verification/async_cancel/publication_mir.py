@@ -653,11 +653,28 @@ def check_allocation(emitted: str) -> str | None:
     return None
 
 
-# 🧑 "the human requires proving the real code conforms to the spec, not only a model"
-def check(
+@dataclass
+class PublicationProgram:
+    """Validated syntax and structural coverage, without ownership conclusions."""
+
+    blocks: dict[str, list[str]]
+    constructor: str
+    prefix: tuple[str, ...]
+    layout: FrameLayout
+
+
+@dataclass
+class PublicationTrace:
+    """Actual abstract outputs before and after one Pending resumption."""
+
+    first: State
+    second: State
+
+
+def prepare(
     resume: str, emitted: str, required_prefix: tuple[str, ...] | None = None
-) -> str | None:
-    """Enumerate cache/map outcomes and check every direct-publication case."""
+) -> PublicationProgram | str:
+    """Validate structural, layout and allocation premises without checking ownership."""
     from verification.async_cancel.entry_coverage import check as entry_check
 
     prefix = entry_check(resume)
@@ -679,24 +696,40 @@ def check(
         return layout
     if isinstance(program, str) or len(constructors) != 1:
         return "unsupported function, constructor, or frame layout"
-    constructor = constructors[0]
+    return PublicationProgram(program, constructors[0], prefix, layout)
+
+
+# 🧑 "the human requires proving the real code conforms to the spec, not only a model"
+def check(
+    resume: str, emitted: str, required_prefix: tuple[str, ...] | None = None
+) -> str | None:
+    """Enumerate cache/map outcomes and check every direct-publication case."""
+    prepared = prepare(resume, emitted, required_prefix)
+    if isinstance(prepared, str):
+        return prepared
     published = False
     for hits in product((False, True), repeat=3):
-        result = check_case(program, constructor, prefix, hits, layout)
+        result = check_case(
+            prepared.blocks,
+            prepared.constructor,
+            prepared.prefix,
+            hits,
+            prepared.layout,
+        )
         if isinstance(result, str):
             return result
         published |= result
     return None if published else "no enumerated execution covers direct insertion"
 
 
-def check_case(
+def trace_case(
     program: dict[str, list[str]],
     constructor: str,
     prefix: tuple[str, ...],
     hits: tuple[bool, ...],
     layout: FrameLayout,
-) -> bool | str:
-    """Return whether this outcome schedule publishes, or its proof failure."""
+) -> PublicationTrace | str | None:
+    """Interpret actual outcomes without asserting guard equality or preservation."""
     initial = State(
         {
             "_1": Value("tuple", items=(Value("view", items=(Value("frame"),)),)),
@@ -711,28 +744,11 @@ def check_case(
         return first
     if first.publication is None:
         return (
-            False if first.no_publication_exit else "unjustified no-publication outcome"
+            None if first.no_publication_exit else "unjustified no-publication outcome"
         )
     if tuple(first.trace[: len(prefix)]) != prefix:
         return "interpreted execution does not cover the unique insertion prefix"
-    expected = (
-        Value("some", items=(Value("guard", items=first.publication),))
-        if first.publication
-        else None
-    )
-    if (
-        not expected
-        or first.env.get(layout.guard_slot) != expected
-        or first.env.get("_0") != Value("pending")
-        or first.env.get("state") != Value("int", layout.guard_state)
-        or first.locked
-    ):
-        return "Pending lacks the matching guard or expected suspension state"
-    retained = {
-        key: value
-        for key, value in first.env.items()
-        if key.startswith("frame:") or key == "state"
-    }
+    retained = retained_env(first)
     resumed = State(dict(retained), first.publication, allocations=first.allocations)
     resumed.env.update(
         {
@@ -743,13 +759,42 @@ def check_case(
     second = execute(program, "bb0", resumed, constructor)
     if isinstance(second, str):
         return second
-    after = {
+    return PublicationTrace(first, second)
+
+
+def retained_env(state: State) -> dict[str, Value]:
+    """Project the abstract coroutine storage retained between polls."""
+    return {
         key: value
-        for key, value in second.env.items()
+        for key, value in state.env.items()
         if key.startswith("frame:") or key == "state"
     }
+
+
+def check_case(
+    program: dict[str, list[str]],
+    constructor: str,
+    prefix: tuple[str, ...],
+    hits: tuple[bool, ...],
+    layout: FrameLayout,
+) -> bool | str:
+    """Check the historical Python ownership conditions on an unfiltered trace."""
+    trace = trace_case(program, constructor, prefix, hits, layout)
+    if isinstance(trace, str):
+        return trace
+    if trace is None:
+        return False
+    first, second = trace.first, trace.second
+    expected = Value("some", items=(Value("guard", items=first.publication or ()),))
     if (
-        after != retained
+        first.env.get(layout.guard_slot) != expected
+        or first.env.get("_0") != Value("pending")
+        or first.env.get("state") != Value("int", layout.guard_state)
+        or first.locked
+    ):
+        return "Pending lacks the matching guard or expected suspension state"
+    if (
+        retained_env(second) != retained_env(first)
         or second.publication != first.publication
         or second.env.get("_0") != Value("pending")
         or second.locked

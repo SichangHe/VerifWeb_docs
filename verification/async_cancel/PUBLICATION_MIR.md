@@ -2,6 +2,8 @@
 (authored by agents unless marked 🧑)
 
 scope
+- [ownership obligations](OWNERSHIP_OBLIGATIONS.md) translate the unfiltered interpreter outputs into Verus base, step and repeated-Pending induction proofs
+  - the older Python ownership checks remain available for standalone regression testing
 - `publication_mir.py` interprets actual Pingora get-resume MIR and its concrete guard constructor
   - initial state 0 enters actual bb0 dispatch and bb444, deriving saved self/key/extra and hashed key from executed operands through bb14
   - enumerate all eight Some/None schedules for MemoryCache get and the two HashMap gets

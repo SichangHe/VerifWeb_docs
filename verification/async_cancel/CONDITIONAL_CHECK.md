@@ -18,10 +18,13 @@ checked connection
   - cases leaving the insertion-reaching prefix before publication cannot reach the sole direct insertion
   - publishing cases follow normal-return calls and Pending polls
   - resumed Pending transitions preserve that abstract guard invariant
+  - [generated ownership obligations](OWNERSHIP_OBLIGATIONS.md) expose actual interpreted values and resume equations to Verus
+  - Verus proves the initial match and preservation, with induction over arbitrary numbers of Pending polls
+  - the generator does not assume the former Python ownership postcondition checks succeeded
   - capture operands and saved guard positions are cross-checked against the compiler's factory, debug projections and typed coroutine layout
   - Pingora's own lock-allocation body is interpreted to establish its fresh, zero-permit allocation contract
-- [drop analysis](MIR_CHECK.md) checks that this same slot is preserved until its successful destruction on every normal-return cancellation path
-  - [generated destruction proof](DROP_OBLIGATIONS.md) additionally gives Verus every extracted edge and a candidate invariant
+- [drop instruction analysis](MIR_CHECK.md) restricts operations that could change this same slot before destruction
+  - [generated destruction proof](DROP_OBLIGATIONS.md) gives Verus every extracted edge and a candidate invariant
   - Verus checks initialization, edge preservation and return safety, then proves the property for arbitrary finite paths by induction
   - Python's reachable-state computation proposes the invariant; its safety conclusion is not a proof assumption
 - [cleanup translation](CLEANUP_SEMANTICS.md) derives Verus obligations from the actual guard destructor
@@ -38,6 +41,7 @@ composition assumptions
 
 limits
 - inherits the constituent checks' trusted compiler, parser/interpreter, field-layout, safe-aliasing and dependency-contract assumptions
+  - ownership obligations prove the translated abstract equations, not correctness of the Python interpreter or its abstraction of callback state
   - direct artifact input requires files from the same pinned build; the build wrapper prevents stale-file selection but does not authenticate source or compiler
   - Rust's Option destruction must call the selected CacheLockGuard destructor when the saved slot is Some
 - no all-entry or whole-function theorem
