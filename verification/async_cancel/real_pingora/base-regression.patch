@@ -1,0 +1,61 @@
+diff --git a/pingora-memory-cache/src/read_through.rs b/pingora-memory-cache/src/read_through.rs
+index 96e4348..179cae0 100644
+--- a/pingora-memory-cache/src/read_through.rs
++++ b/pingora-memory-cache/src/read_through.rs
+@@ -802,4 +802,56 @@ mod tests {
+         assert_eq!(res.unwrap(), 2);
+         assert_eq!(hit, CacheStatus::Hit);
+     }
++    // Issue #931: a cancelled writer leaves its CacheLock behind in `lockers` with zero
++    // permits, so every later request for the same key blocks forever.
++    static LOOKUP_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++    static LOOKUP_ENTERED: once_cell::sync::Lazy<tokio::sync::Notify> =
++        once_cell::sync::Lazy::new(tokio::sync::Notify::new);
++
++    struct HangingLookup;
++
++    #[async_trait]
++    impl Lookup<i32, i32, ()> for HangingLookup {
++        async fn lookup(
++            _key: &i32,
++            _extra: Option<&()>,
++        ) -> Result<(i32, Option<Duration>), Box<dyn ErrorTrait + Send + Sync>> {
++            if std::sync::atomic::AtomicUsize::fetch_add(
++                &LOOKUP_CALLS,
++                1,
++                std::sync::atomic::Ordering::SeqCst,
++            ) == 0
++            {
++                /* the writer's lookup never completes on its own */
++                LOOKUP_ENTERED.notify_one();
++                std::future::pending::<()>().await;
++            }
++            Ok((1, None))
++        }
++    }
++
++    #[tokio::test]
++    async fn test_cancelled_writer_does_not_block_later_readers() {
++        let cache: RTCache<i32, i32, HangingLookup, ()> = RTCache::new(10, None, None);
++        let cache = Arc::new(cache);
++
++        let cache_c = cache.clone();
++        let writer = tokio::spawn(async move { cache_c.get(&1, None, None).await });
++
++        /* wait until the writer is inside lookup(), so its lock is registered */
++        LOOKUP_ENTERED.notified().await;
++
++        /* cancel the writer while its lookup is still awaiting */
++        writer.abort();
++        let _ = writer.await;
++
++        /* a later request for the same key must still make progress */
++        let later = tokio::time::timeout(Duration::from_secs(5), cache.get(&1, None, None)).await;
++        assert!(
++            later.is_ok(),
++            "RTCache::get() is stuck: stale CacheLock left in lockers after writer cancellation"
++        );
++        assert_eq!(later.unwrap().1, CacheStatus::Miss);
++    }
++
+ }
