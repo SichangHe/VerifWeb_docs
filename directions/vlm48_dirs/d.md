@@ -195,7 +195,7 @@ Evidence:
 - GHSA-28m8-9j7v-x499 (CVE-2022-39215) https://github.com/advisories/GHSA-28m8-9j7v-x499 "missing canonicalization when readDir is called recursively" [via search tool].
 - Electron context isolation bypass GHSA-h7rp-cf8h-j98x (CVE-2026-70601) https://github.com/electron/electron/security/advisories/GHSA-h7rp-cf8h-j98x ; GHSA-jfqg-hf23-qpw2 (CVE-2026-34780) https://github.com/electron/electron/security/advisories/GHSA-jfqg-hf23-qpw2 (Electron is C++/JS; bugs are engine-boundary, hard to verify).
 - Rust: Tauri core is Rust (tauri-apps/tauri). Pentest: https://fossies.org/linux/tauri/audits/Radically_Open_Security-v2-report.pdf
-Prior work: Scholar blocked (CAPTCHA, other agents).
+Prior work (changed 2026-11-14, Scholar, 5 queries, snippets only): no paper on Tauri's IPC or capability model. Nearest: "Buzz to Boom: Detecting Message Progression Vulnerabilities in Electron Applications via Segmented Directed Fuzzing" (arXiv 2607.20698, 2026) and CoInDef, "A comprehensive code injection defense for the electron framework" (IEEE S&P 2025): Electron, fuzzing/defense, no proof. Deno: "Welcome to Jurassic park: A comprehensive study of security risks in Deno and its ecosystem" (AlHamdan, Staicu, CISPA 2025), Cage4deno and NatiSand (2023): sandbox studies and extensions, no verification of the permission checks. Verdict: still open.
 Gaps/unknowns: the pure-Rust ACL/origin/scope-matching layer is verifiable; webview and OS path semantics are not. Classes of bugs are string/path parsing and origin logic: INFERENCE that these suit Rust verification tools (Kani, Verus) well. OPINION: strongest of C1-C6 for Rust fit and a real recurring CVE class (2022, 2023, 2024, 2026).
 
 ## C3 Fetch/CORS/PNA in Servo's net crate

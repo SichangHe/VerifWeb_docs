@@ -58,3 +58,10 @@ Takeaway. No candidate has both a large, sourced Rust user count and a documente
 6. Bluesky via rsky, Lemmy (~30K MAU), OpenMLS: small or unknown
 
 If both fit and reach matter, INFERENCE: Firefox bookmark sync first, Matrix second. Matrix has better documented, recent divergence bugs; Firefox reaches more users.
+
+## Scholar update, 2026-11-14 (changed in this pass)
+
+Five Scholar queries; three (bookmark merge, Matrix state resolution, password-manager sync) returned only unrelated papers. Found:
+- Bluesky: Kleppmann et al., "Bluesky and the AT Protocol: Usable decentralized social media" (2024): design paper, no verification of relay consistency.
+- CRDTs in Rust: "Crust: A Modular Framework for CRDTs Development, Validation, and Benchmarking" (IEEE Access 2025): testing framework, not proofs. Verified CRDTs on models exist (already known, e.g. Gomes et al. 2017); none on the Rust targets above.
+Verdict for all targets in this file: still open (unchanged). The candidates-list queries (Matrix, MLS, tree CRDTs) add more below in directions/prior_work_2026-11.md.

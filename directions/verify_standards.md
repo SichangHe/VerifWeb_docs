@@ -74,3 +74,19 @@ The novelty argument (inference): prior tools handle sequential specs (ESMeta, S
 
 - Not searched: BGP, MPTCP, HTTP/2 and HTTP/3, WebAuthn, Signal, Matrix, POSIX/SibylFS, JSCert/KJS/JaVerT details.
 - Not done: a full-text check of quoted numbers; whether anyone is already model-checking the rewritten navigation spec (none found).
+
+## Scholar update, 2026-11-14 (changed in this pass)
+
+Google Scholar worked again. Seven queries (2022 onward, plus one from 2014 for older navigation models). Evidence is Scholar result snippets only; no paper was opened. Raw results: see directions/prior_work_2026-11.md.
+
+Closest found, none of which changes the answer above:
+- Veronese, "Computer-aided formal security analysis of the Web platform" (thesis, TU Wien, 2024); snippet: "of standards published by the W3C, IETF and WHATWG was … is the support for both bug finding and proof generation". This is the WebSpec line (security properties, hand-written model), already cited above.
+- Hosseyni, "Formal analysis of web protocols and mechanized security proofs" (thesis, Stuttgart, 2026), Web Infrastructure Model; security protocols, hand-modeled.
+- "It takes a village: Bridging the gaps between current and formal specifications for protocols" (Basin, Foster, McMillan, Namjoshi et al., CACM 2025): a position article on formal specs for protocols, not a tool for WHATWG algorithms.
+- RFCScope (ASE 2025) and "Can LLMs help find Ambiguities in Protocol Specifications?" (Dang et al., arXiv 2026): LLM ambiguity detection in RFCs, not models.
+- ESMeta line continues (CACM 2024 "JavaScript Language Design and Implementation in Tandem"; TOSEM 2026 coverage; MiniPoly ICSE 2026) and Wasm SpecTec (PLDI 2024): sequential language specs only.
+- "Origin Story: A Comprehensive Lifecycle Analysis of Same-Origin Policy Bugs" (2026) and DiffCSP / Head(er)s Up (CISPA, 2023/2025): find browser and spec bugs by differential testing, not by modeling the spec.
+- Alpuente et al. (SCP 2014), rewriting-logic navigation model of web applications, not of the HTML spec.
+
+Verdict: still open (unchanged). No paper found that models or model-checks concurrent WHATWG step algorithms (navigation, event loop). Seven queries is weak evidence of absence.
+

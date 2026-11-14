@@ -94,3 +94,13 @@ Zab and Viewstamped Replication have no usable Rust implementation, so they need
 ## Papers kept in paper_collection
 
 These are new this task: Lifeguard (DSN 2018), the consensus-verification SoK (Bondarev et al., arXiv 2026), and folders with extracted text for the MongoDB transactions paper (PVLDB 2025) and the DAG-consensus paper (NFM 2025). These were already in the collection: Ouyang et al. (EuroSys 2025), the EPaxos fix (2025), Bílý et al. (OOPSLA 2025) and SandTable (EuroSys 2024).
+
+## Scholar update, 2026-11-14 (changed in this pass)
+
+Google Scholar worked again; 7 queries, snippets only. Changes per protocol:
+- Percolator: "Formalization and verification of percolator using CSP" (Wang, Su, Zhu, IEEE COMPSAC 2024) models basic Percolator, a model and not the TiKV code. Not checked whether it covers async commit or pessimistic locks. Verdict: still open for the Rust code (unchanged); protocol-level model now partly done.
+- OmniPaxos: no verification paper; only the EuroSys 2023 design paper and users as a baseline. Verdict: still open. New neighbour: AutoMan (Zhang, Zhou, Jenkins, Chowdhury et al., 2025), "Facilitating Verified Distributed Systems Development Through Automatic Code Generation", generates verified distributed-system code; check whether it targets Rust/Verus before claiming novelty.
+- Gossip (chitchat, foca): no verification paper found. Verdict: still open.
+- Tendermint (Malachite): model checking of the protocol exists (Yu, Hou, Dong, Dong, "International Conference on Engineering of Complex …" 2025, "Model Checking Nondeterministic Behaviours in the Tendermint Byzantine Fault Tolerant Blockchain Consensus Protocol"); "Revisiting Fast Tendermint: An Agreement Violation and Two Repairs" (arXiv 2610.16442, 2026) found a protocol bug in a 2026 variant. No implementation proof. Verdict: still open for the code.
+- HotStuff (Aptos safety-rules): only the Agda proof already cited (Carr et al., NFM 2022) and the consensus-verification SoK (arXiv 2608.21935, already in paper_collection). Verdict: still open.
+- New general neighbour: "Agora: Toward Autonomous Bug Detection in Production-Level Consensus Protocols with LLM Agents" (arXiv 2026), bug finding, not proofs.

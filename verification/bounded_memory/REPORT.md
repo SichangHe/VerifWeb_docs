@@ -53,3 +53,13 @@ No paper was downloaded, so none was added to the paper collection.
 ## Recommended next step
 
 Extend the same method to quinn-proto's stream-open bound (RUSTSEC-2026-0523) and assembler (0185/0341), with pre-fix code required to fail, then state the per-connection sum. In parallel, measure whether shared `Bytes` makes true memory exceed accounted memory; if it does, the specification, and possibly quinn, must count retained packet buffers. The decision for the human is whether a textual conformance check is an acceptable link to real code, or whether the proof must run on quinn-proto's own build, for example in a fork with Verus annotations in place.
+
+## Scholar update, 2026-11-14 (changed in this pass)
+
+Four more Scholar queries, snippets only. New closest work:
+- Medusa: "unveil memory exhaustion DoS vulnerabilities in protocol implementations" (Du et al., 2024, ACM): finds such bugs by analysis/testing, no bound proof.
+- PRETT2: "Discovering HTTP/2 DoS Vulnerabilities via Protocol Reverse Engineering" (ESORICS 2024), MadeYouReset (IEEE S&P 2026), "Logical Vulnerabilities in QUIC Implementations" (NDSS 2026, 16 implementations): attack/bug finding.
+- RaRust, "Automatic Linear Resource Bound Analysis for Rust via Prophecy Potentials" (Lian, Wang, PACMPL 2025), already listed above.
+
+Verdict: still open (unchanged). Bug-finding for memory-exhaustion DoS is active; proving a per-connection bound on real code was not found.
+

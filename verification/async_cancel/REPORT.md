@@ -107,3 +107,14 @@ For openraft and Automerge networking, ordinary async control flow is no longer 
 ## Literature boundary
 
 A Google Scholar query for `Rust async cancellation formal verification` through `pb-browser-page-extract` encountered a CAPTCHA (`challenge_action_required`). We stopped without bypassing it. This study establishes tool behavior and upstream development status, not literature completeness or research novelty. No papers were downloaded or added to the collection.
+
+## Scholar update, 2026-11-14 (changed in this pass)
+
+Five Scholar queries (2022 onward), snippets only. No paper found that verifies cancellation safety of async Rust (state consistent when a future is dropped at an await point). Closest:
+- Gray, Krishnamurthi, Crichton, "A Design Space Exploration of Async/Await" (PACMPL 2026): a formal semantics and design survey; the only hit for the exact phrase "cancel safety". Snippet: "Smol implements task destruction using Rust's Drop trait, which only permi…". Semantics, not verification of programs.
+- Sethi, Pan, Lu, Musuvathi, Nath, "Cancellation in systems: An empirical study of task cancellation patterns and failures" (OSDI 2022): bug study, not Rust async, no proofs. Good motivation citation.
+- Lion (Zhou, Zhang, Chowdhury, Mu, SOSP 2026) and Li, Beschastnikh, Summers (arXiv 2610.09198, 2026) verify liveness of async runtimes (tasks are eventually woken), not cancellation of user futures. They are the closest Verus-on-async work and must be cited; Lion shows Verus can reason about a Tokio-compatible runtime.
+- Drodt, "A Complete, Formal Semantics for Rust Source Code" (arXiv 2610.06003, 2026) mentions async composition rules; not checked whether it models drop of suspended futures.
+
+Verdict: still open (unchanged), with a new must-cite neighbour (async runtime liveness verification).
+
