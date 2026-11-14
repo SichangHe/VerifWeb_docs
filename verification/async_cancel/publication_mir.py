@@ -7,6 +7,7 @@ from itertools import product
 from pathlib import Path
 
 from verification.async_cancel.cleanup_mir_check import functions
+from verification.async_cancel.mir_blocks import blocks
 
 
 @dataclass(frozen=True)
@@ -157,6 +158,7 @@ class State:
     hits: tuple[bool, ...] = ()
     gets: int = 0
     no_publication_exit: bool = False
+    allocation_body: bool = False
 
     def get_result(self, payload: Value) -> Value | str:
         """Select one enumerated get result; reject unbounded additional gets."""
@@ -165,23 +167,6 @@ class State:
         hit = self.hits[self.gets]
         self.gets += 1
         return Value("some", items=(payload,)) if hit else Value("none")
-
-
-def blocks(text: str) -> dict[str, list[str]] | str:
-    """Read compiler-formatted blocks and reject duplicate or empty blocks."""
-    result: dict[str, list[str]] = {}
-    for match in re.finditer(
-        r"^    (bb\d+)(?: \(cleanup\))?: \{\n(.*?)^    }",
-        text,
-        re.MULTILINE | re.DOTALL,
-    ):
-        name, body = match.groups()
-        if name in result:
-            return "duplicate block"
-        result[name] = [line.strip() for line in body.splitlines() if line.strip()]
-        if not result[name]:
-            return "empty block"
-    return result if result else "no basic blocks"
 
 
 def bare(text: str) -> str:
@@ -280,6 +265,9 @@ def evaluate(text: str, state: State) -> Value | None:
         return None
     if text in {"const true", "const false"}:
         return Value("int", "1" if text == "const true" else "0")
+    match = re.fullmatch(r"const (\d+)_usize", text)
+    if match:
+        return Value("usize", match[1])
     if text in {"const ()", "()", ""}:
         return Value("unit")
     if text == "Option::<Arc<CacheLock>>::None":
@@ -308,6 +296,17 @@ def evaluate(text: str, state: State) -> Value | None:
         owner, key = evaluate(match[2], state), evaluate(match[3], state)
         if owner and key:
             return Value("closure", match[1], (owner, key))
+    match = re.fullmatch(r"CacheLock \{ lock_start: (.+), lock: (.+) }", text)
+    if match:
+        values = [evaluate(arg, state) for arg in match.groups()]
+        if [value.sort if value else None for value in values] == [
+            "instant",
+            "semaphore",
+        ]:
+            return Value(
+                "cache_lock",
+                items=tuple(value for value in values if value is not None),
+            )
     match = re.fullmatch(
         r"CacheLockGuard::<'_> \{ lockers: (.+), hashed_key: (.+), lock: (.+) }", text
     )
@@ -339,12 +338,25 @@ def owns_guard(value: Value) -> bool:
 
 def call(name: str, args: str, state: State, constructor: str) -> Value | str:
     """Use explicit normal-return contracts on checked symbolic arguments."""
-    if not constructor and name != "<Arc<CacheLock> as Clone>::clone":
-        return "unsupported constructor call"
     values = [evaluate(arg, state) for arg in args.split(", ")] if args else []
     if any(value is None for value in values):
         return "unknown call argument"
     actual = [value for value in values if value is not None]
+    if state.allocation_body:
+        if name == "Semaphore::new" and len(actual) == 1 and actual[0].sort == "usize":
+            return Value("semaphore", actual[0].label)
+        if name == "std::time::Instant::now" and not actual:
+            return Value("instant")
+        if (
+            name == "Arc::<CacheLock>::new"
+            and len(actual) == 1
+            and actual[0].sort == "cache_lock"
+        ):
+            state.allocations += 1
+            return Value("arc", str(state.allocations), tuple(actual))
+        return "unsupported allocation primitive or arguments"
+    if not constructor and name != "<Arc<CacheLock> as Clone>::clone":
+        return "unsupported constructor call"
     read = [deref(value, state) for value in actual]
     write = "parking_lot::lock_api::RwLock::<parking_lot::RawRwLock, HashMap<u64, Arc<CacheLock>>>::write"
     guard = "parking_lot::lock_api::RwLockWriteGuard<'_, parking_lot::RawRwLock, HashMap<u64, Arc<CacheLock>>>"
@@ -617,6 +629,30 @@ def construct(text: str, capture: Value, arc: Value) -> Value | str:
     )
 
 
+def check_allocation(emitted: str) -> str | None:
+    """Derive the fresh zero-permit Arc contract from the actual new_arc body."""
+    candidates = [
+        body
+        for body in functions(emitted)
+        if re.match(r"fn read_through::[^\n(]+::new_arc\(", body)
+    ]
+    if len(candidates) != 1 or not re.fullmatch(
+        r"fn read_through::[^\n(]+::new_arc\(\) -> Arc<CacheLock> \{",
+        candidates[0].splitlines()[0],
+    ):
+        return "unsupported new_arc signature"
+    program = blocks(candidates[0])
+    if isinstance(program, str):
+        return program
+    result = execute(program, "bb0", State(allocation_body=True), "")
+    if isinstance(result, str):
+        return result
+    lock = Value("cache_lock", items=(Value("instant"), Value("semaphore", "0")))
+    if result.allocations != 1 or result.env.get("_0") != Value("arc", "1", (lock,)):
+        return "new_arc does not return its fresh zero-permit CacheLock allocation"
+    return None
+
+
 # 🧑 "the human requires proving the real code conforms to the spec, not only a model"
 def check(
     resume: str, emitted: str, required_prefix: tuple[str, ...] | None = None
@@ -629,6 +665,9 @@ def check(
         return prefix
     if required_prefix is not None and prefix != required_prefix:
         return "provided insertion prefix differs from structural coverage"
+    allocation_error = check_allocation(emitted)
+    if allocation_error:
+        return allocation_error
     program = blocks(resume)
     constructors = [
         body

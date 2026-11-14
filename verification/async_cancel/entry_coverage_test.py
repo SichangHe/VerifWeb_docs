@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from verification.async_cancel.entry_coverage import check
-from verification.async_cancel.publication_mir import blocks
+from verification.async_cancel.mir_blocks import blocks
 
 
 def main() -> int:
@@ -19,6 +19,27 @@ def main() -> int:
     program = blocks(text)
     assert isinstance(program, dict)
     assert isinstance(check(text), tuple), check(text)
+    state_write = "discriminant((*_346)) = 7;"
+    for replacement in [
+        "discriminant((*_346)) = 0;",
+        "discriminant((*_346)) = copy _345;",
+        "discriminant((*_9999)) = 7;",
+        "discriminant((*_346)) = 999;",
+    ]:
+        changed = text.replace(state_write, replacement, 1)
+        assert changed != text and "frame-state write" in (check(changed) or "")
+    removed = text.replace(state_write, "nop;", 1)
+    assert (
+        removed != text
+        and check(removed) == "normal return can retain the Unresumed state"
+    )
+    wrong_frame = text.replace(
+        "_345 = discriminant((*_346));", "_345 = discriminant((*_9999));", 1
+    )
+    assert (
+        wrong_frame != text
+        and check(wrong_frame) == "initial dispatch does not read the frame state"
+    )
     insert = next(
         name
         for name, lines in program.items()

@@ -12,8 +12,12 @@ scope
   - one interpreted state-7 resume cycle reproduces the complete retained frame environment
     - the same transition can repeat, with fresh poll context and discarded locals
 - publication path uses no fingerprints or accepted-block instruction templates
+  - shared textual basic-block parsing lives in `mir_blocks.py`, avoiding a coverage/interpreter import cycle
   - interpreter follows actual branch targets and resolves operands, borrows, tuple projections, Option discriminants, closure captures and frame assignments
   - the concrete constructor is interpreted with actual captures and Arc argument
+  - actual `CacheLock::new_arc` body is interpreted once to derive its reusable normal-return contract
+    - its returned Arc must be the unique fresh allocation containing the actual Instant and a zero-permit Semaphore
+    - call sites instantiate this established allocation identity; freshness distinguishes separate calls in identity-mismatch mutants
   - unsupported executed statements, calls, argument sorts and cycles reject
 - this does not establish all-entry or all-publication coverage
   - checked compiler layout and initial Unresumed state remain explicit scope restrictions
@@ -34,7 +38,9 @@ state and calls
   - read/Deref preserve protected map identity; cloned preserves None or the existing Arc identity in Some
     - these prefix summaries require no existing publication obligation
   - write/Deref/DerefMut preserve protected map identity
-  - new_arc produces a fresh allocation; clone preserves its identity
+  - Arc::new allocates its supplied value freshly; Semaphore::new preserves its permit argument; Instant::now returns an Instant
+    - only these primitives are allowed while interpreting new_arc
+  - clone preserves Arc identity
   - HashMap get returns None or Some reference to a symbolic existing Arc; insert publishes its passed value
   - Option as_ref/map preserve variant and apply the interpreted closure to Some
   - lookup/IntoFuture/Pin construct the callback future; poll may return Pending without modifying unrelated private frame storage
@@ -76,6 +82,7 @@ validation
   - adding a hit-to-insert route rejects through structural coverage
   - changed guard declaration/layout/debug identity, raw key projection and factory key operand reject
   - consistent raw capture reordering, guard-slot reordering and suspension-state renumbering are accepted
+  - changed new_arc permit count, aggregate operands, Arc argument/return destination and allocation bypass reject
   - malformed/type-invalid mutants test rejection behavior, not newly compiled Rust regressions
 
 next obligation

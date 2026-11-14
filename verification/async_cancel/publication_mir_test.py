@@ -7,8 +7,8 @@ from pathlib import Path
 
 from verification.async_cancel.cleanup_mir_check import functions
 from verification.async_cancel.entry_coverage import check as check_coverage
+from verification.async_cancel.mir_blocks import blocks
 from verification.async_cancel.publication_mir import (
-    blocks,
     check,
     check_case,
     frame_layout,
@@ -161,6 +161,21 @@ def main() -> None:
     ]
     for before, after in mutations:
         assert check(replace(resume, before, after), emitted) is not None, before
+    allocation_mutations = [
+        ("Semaphore::new(const 0_usize)", "Semaphore::new(const 1_usize)"),
+        (
+            "_1 = CacheLock { lock_start: move _3, lock: move _2 };",
+            "_1 = CacheLock { lock_start: move _2, lock: move _3 };",
+        ),
+        ("Arc::<CacheLock>::new(move _1)", "Arc::<CacheLock>::new(move _2)"),
+        ("_0 = Arc::<CacheLock>::new(move _1)", "_4 = Arc::<CacheLock>::new(move _1)"),
+        (
+            "_3 = std::time::Instant::now() -> [return: bb2, unwind continue];",
+            "_3 = std::time::Instant::now() -> [return: bb3, unwind continue];",
+        ),
+    ]
+    for before, after in allocation_mutations:
+        assert check(resume, replace(emitted, before, after)) is not None, before
     before = "_0 = CacheLockGuard::<'_> { lockers: copy _3, hashed_key: move _4, lock: move _5 };"
     after = "_0 = CacheLockGuard::<'_> { lockers: copy _3, hashed_key: move _4, lock: copy _4 };"
     assert check(resume, replace(emitted, before, after)) is not None

@@ -7,6 +7,11 @@ run
 - use the resume artifact from [the pinned build](real_pingora/README.md)
 
 checked structure
+- initial dispatch reads the canonical frame alias copied from the pinned resume parameter
+  - metadata identifies Unresumed and the supported state constants
+  - every explicit discriminant write targets that frame and selects a supported non-Unresumed state
+  - every normal-return path passes a state-write block, including paths outside publication interpretation
+  - unsupported discriminant write forms and reassignment of the canonical frame alias reject
 - exactly one direct `HashMap::<...>::insert(...)` occurs in the parsed function
   - the actual artifact places it in `bb47`
   - registration's write-lock acquisition at `bb14` dominates it from coroutine dispatch `bb0`
@@ -50,11 +55,14 @@ remaining proof obligations
   - a synchronous call may block, panic, diverge or have side effects
   - no Ready-path cleanup, successful return or termination theorem
 - inherits the pinned MIR parser and compiler trust boundary
+  - compiler-generated state changes use explicit discriminant writes; raw or aliased whole-frame replacement is outside this check
+  - compiler validity and private-frame aliasing remain trusted; this is not a general memory-write analysis
   - assumes Poll discriminants 0 for Ready and 1 for Pending
   - validates the pinned callback dispatch shape, not arbitrary equivalent MIR
   - `bb14` remains the pinned registration entry
 
 mutation evidence
+- rejected Unresumed/unknown state writes, variable state writes, a different target frame, a mismatched dispatch frame and a deleted suspension-state write
 - real artifact accepted
 - rejected entry bypass, additional insertion, callback Ready redirected to Pending, overwritten selector and mutable result borrow
 - rejected a second path to insertion, terminating-unwind poll bypass and alternate Pending discriminant write

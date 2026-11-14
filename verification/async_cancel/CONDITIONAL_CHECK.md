@@ -19,6 +19,7 @@ checked connection
   - publishing cases follow normal-return calls and Pending polls
   - resumed Pending transitions preserve that abstract guard invariant
   - capture operands and saved guard positions are cross-checked against the compiler's factory, debug projections and typed coroutine layout
+  - Pingora's own lock-allocation body is interpreted to establish its fresh, zero-permit allocation contract
 - [drop analysis](MIR_CHECK.md) checks that this same slot is preserved until its successful destruction on every normal-return cancellation path
 - [cleanup translation](CLEANUP_SEMANTICS.md) derives Verus obligations from the actual guard destructor
   - its locked map snapshot loses the owner's entry, preserves any replacement and leaves other keys unchanged
@@ -27,9 +28,10 @@ checked connection
 
 composition assumptions
 - every poll before cancellation returns Pending; no polling after Ready
-- rustc's coroutine lifecycle never returns an already-polled future to Unresumed
-  - needed for insertion-free suspended paths: later resume routes cannot reach insertion without violating the checked unique prefix
-  - this lifecycle property is trusted in uninterpreted suffixes
+- direct frame-state writes never restore Unresumed, and every normal return crosses a supported noninitial state write
+  - checked across parsed resume code, including otherwise uninterpreted suffixes
+  - still assumes valid compiler MIR and no unmodeled raw or aliased whole-frame replacement
+  - insertion-free suspended paths therefore cannot later reach insertion without violating the checked unique prefix
 
 limits
 - inherits the constituent checks' trusted compiler, parser/interpreter, field-layout, safe-aliasing and dependency-contract assumptions

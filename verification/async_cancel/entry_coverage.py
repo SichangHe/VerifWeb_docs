@@ -4,7 +4,7 @@ import re
 import sys
 from pathlib import Path
 
-from verification.async_cancel.publication_mir import blocks
+from verification.async_cancel.mir_blocks import blocks
 
 
 def graph(program: dict[str, list[str]]) -> dict[str, set[str]] | str:
@@ -45,6 +45,57 @@ def reachable(edges: dict[str, set[str]], start: str, cut: str = "") -> set[str]
             seen.add(block)
             todo.extend(edges[block] - seen)
     return seen
+
+
+def frame_states(
+    resume: str, program: dict[str, list[str]], edges: dict[str, set[str]]
+) -> str | None:
+    """Check canonical frame dispatch and explicit state writes before returns."""
+    variants = [
+        (match[1], match[2])
+        for match in re.finditer(
+            r"^\s+(Unresumed|Returned|Panicked|Suspend\d+) ?\((\d+)\):",
+            resume,
+            re.MULTILINE,
+        )
+    ]
+    initial = [number for name, number in variants if name == "Unresumed"]
+    signature = re.search(
+        r"^fn .+\((_\d+): Pin<&mut \{async fn body", resume, re.MULTILINE
+    )
+    entry = program["bb0"]
+    alias = (
+        re.fullmatch(
+            r"(_\d+) = copy \((_\d+)\.0: &mut \{async fn body .+}\);", entry[-3]
+        )
+        if len(entry) >= 3
+        else None
+    )
+    if len(initial) != 1 or not signature or not alias or alias[2] != signature[1]:
+        return "unsupported initial frame alias or Unresumed metadata"
+    frame = alias[1]
+    selector = re.fullmatch(rf"(_\d+) = discriminant\(\(\*{frame}\)\);", entry[-2])
+    if not selector or not entry[-1].startswith(f"switchInt(move {selector[1]}) -> ["):
+        return "initial dispatch does not read the frame state"
+    valid = {number for _, number in variants} - {initial[0]}
+    writes: set[str] = set()
+    for name, lines in program.items():
+        for line in lines:
+            if re.match(rf"{frame}\s*=", line) and (name != "bb0" or line != entry[-3]):
+                return "frame alias is reassigned"
+            if not line.startswith("discriminant("):
+                continue
+            write = re.fullmatch(rf"discriminant\(\(\*{frame}\)\) = (\d+);", line)
+            if not write or write[1] not in valid:
+                return f"unsupported or Unresumed frame-state write in {name}"
+            writes.add(name)
+    without_writes = {name: successors - writes for name, successors in edges.items()}
+    if any(
+        program[name][-1] == "return;"
+        for name in reachable(without_writes, "bb0") - writes
+    ):
+        return "normal return can retain the Unresumed state"
+    return None
 
 
 # 🧑 "the human requires proving the real code conforms to the spec, not only a model"
@@ -107,6 +158,9 @@ def check(resume: str) -> tuple[str, ...] | str:
             polls.append((match[1], match[2]))
     if not polls or not pending:
         return "missing callback polls or suspension sites"
+    state_error = frame_states(resume, program, edges)
+    if state_error:
+        return state_error
     for local, dispatch in polls:
         lines = program[dispatch]
         discriminants = [
