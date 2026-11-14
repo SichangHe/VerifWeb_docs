@@ -490,24 +490,18 @@ Added Nov 13; abstract-level reading only. Empty subsections mean Scholar found 
   - read depth: abstract only
 
 ### 7.9 Wanted but not downloaded (breadth)
-- Omni-Paxos: Breaking the Barriers of Partial Connectivity, EuroSys 2023 (dl.acm.org PDF returned an HTML page; arXiv id not found). Direction 6.
-- A survey on transactional stream processing, Zhang, Soto, Markl, VLDB Journal 2024 (Springer PDF returned HTML). Direction 7.
-- Exactly-once semantics for recoverable data processing applications, Z. Zhu, UT Austin thesis 2024 (Impeller vs Kafka Streams transactions; repository link returned HTML). Direction 7.
-- Runtime protocol refinement checking for distributed protocol implementations, Ding et al., NSDI 2025 (PDF is available at usenix.org; not added, to keep to the top papers for direction 1).
-- Http/3 will not save you from request smuggling, Pisu et al., 2024 (IEEE paywall). Direction 2.
 - Protocol-level upgrade verification (direction 3), liveness-under-partial-connectivity proofs (direction 6), a peer-reviewed lease/fencing-under-pause paper (direction 5), a Kafka-transactions verification paper (direction 7): Scholar found none; the "no machine-checked proof" claims in REPORT.md stay unrefuted but unconfirmed.
+
+Downloaded on 2026-11-13 and now in the collection: Omni-Paxos (EuroSys 2023), the transactional stream processing survey (arXiv preprint of the VLDB Journal paper), Zhu's UT Austin thesis. Ding et al. NSDI 2025 was already in the collection. Http/3 will not save you from request smuggling (Pisu et al., NCA 2024) was obtained through USC library access (PDF only).
 
 ## Wanted but not downloaded (groups 1-6)
 
-- `A Refinement Methodology for Distributed Programs in Rust` (Bílý, Pereira, Müller, OOPSLA 2025, dl.acm.org/doi/abs/10.1145/3763119): the ETH research-collection link returned an HTML page, then HTTP 429; not retried further.
-- `Model checking guided testing for distributed systems` (Mocket, EuroSys 2023, dl.acm.org/doi/abs/10.1145/3552326.3587442): ACM PDF link gave a bot-check HTML page.
-- `Undo and redo support for replicated registers` (PaPoC 2024) and `Composing CRDTs Convergent by Construction` (ACM 2026): ACM PDF links gave HTML, not a PDF.
-- `Exploring the Complexities of Passkey Revocation` (CISPA): the PDF link returned a WAF challenge (HTTP 202); I did not try to bypass it.
-- `Login, Logout, Reset: Measuring Security and Privacy Issues in Real-World Web Logins` (Lamisa, Mannan, Youssef, 2025, Springer): paywalled, no open PDF seen. Its MASc thesis version is already in the collection.
-- `Protect the Gate-Not Only Once: Continuous Access Evaluation in Practice` (IEEE) and `Nano-MCP: V8 Isolates as a Lightweight Alternative to Containers for AI Agent Tool Execution` (IEEE): no open PDF link seen.
+- None remaining from these groups.
 - `Fairness and Liveness under Weak Consistency` (Abdulla et al.) was downloadable but not added: it is about hardware memory models (TSO), not network sync.
 
-No CAPTCHA appeared during searching.
+Downloaded on 2026-11-13 and now in the collection: A Refinement Methodology for Distributed Programs in Rust (OOPSLA 2025), Mocket (EuroSys 2023; paywalled ACM PDF, kept as PDF only, no text in the repo), Undo and Redo Support for Replicated Registers (arXiv version), Composing CRDTs Convergent by Construction (OOPSLA 2026), Exploring the Complexities of Passkey Revocation (CCS 2026, from the CISPA repository). Through USC library access (PDF only, no text in the repo): Login, Logout, Reset (SecureComm 2025), Nano-MCP (GAST 2026) and Protect the Gate (CSNet 2023).
+
+Google Scholar showed a CAPTCHA on 2026-11-13 after four searches; it was not bypassed.
 
 ## What this guide leaves out
 

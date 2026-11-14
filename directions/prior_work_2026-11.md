@@ -30,3 +30,7 @@ Partly done by bug-finding tools or models (no proofs on the real code): items 4
 ## Query log
 
 Raw Scholar results were kept in a temporary scratch directory; they are not committed. Queries per direction: 1-2. Thirteen identity/browser queries (items 48-60) returned empty pages once and were rerun successfully.
+
+## Papers kept in paper_collection
+
+Added this pass: Lion (SOSP 2026), Modular Responsiveness Verification of Rust Async Runtimes (arXiv 2026), Formal Analysis of Metastable Failures in Software Systems (arXiv 2025). Verdict (USENIX Security 2025) was already there. Paywalled ones (Percolator CSP model, TLS 1.3 OpenSSL state machine) were not added.
