@@ -10,6 +10,7 @@ result
   - no separate application state machine replaces the Rust body
   - compiler output and the Python parser/checker are trusted
   - no Verus proof of the cleanup body is provided by this experiment
+  - follow-up [destruction obligations](DROP_OBLIGATIONS.md) now prove the extracted graph property in Verus; [cleanup translation](CLEANUP_SEMANTICS.md) separately proves the map effect
 
 method
 - read paired `coroutine_resume` and `coroutine_drop` dumps for the same function

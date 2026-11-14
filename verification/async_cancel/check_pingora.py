@@ -7,6 +7,7 @@ from pathlib import Path
 
 from verification.async_cancel.check_drop_paths import check as check_drop
 from verification.async_cancel.cleanup_semantics import translate
+from verification.async_cancel.drop_obligations import generate
 from verification.async_cancel.entry_coverage import check as check_coverage
 from verification.async_cancel.publication_mir import check as check_publication
 from verification.async_cancel.publication_mir import frame_layout
@@ -23,6 +24,7 @@ def main() -> int:
     resume_path, drop_path, crate_path, verus_path = map(Path, sys.argv[1:])
     try:
         resume = resume_path.read_text()
+        drop = drop_path.read_text()
         emitted = crate_path.read_text()
         prefix = check_coverage(resume)
         if isinstance(prefix, str):
@@ -36,7 +38,7 @@ def main() -> int:
         if isinstance(layout, str):
             print(f"frame layout rejected: {layout}")
             return 1
-        reports = check_drop(resume, drop_path.read_text(), "CacheLockGuard")
+        reports = check_drop(resume, drop, "CacheLockGuard")
         slot = layout.guard_slot.rsplit(":", 1)[1]
         expected = (
             f"variant {layout.guard_state} slot {slot}: "
@@ -49,6 +51,15 @@ def main() -> int:
         if error or proof is None:
             print(f"cleanup translation rejected: {error}")
             return 1
+        drop_items, error = generate(resume, drop, int(layout.guard_state), int(slot))
+        if error or drop_items is None:
+            print(f"drop translation rejected: {error}")
+            return 1
+        marker = "\n}\n\nfn main()"
+        if proof.count(marker) != 1:
+            print("unsupported proof module layout")
+            return 1
+        proof = proof.replace(marker, drop_items + marker)
         with tempfile.TemporaryDirectory(prefix="pingora-proof-") as directory:
             path = Path(directory) / "cleanup.rs"
             _ = path.write_text(proof)

@@ -21,6 +21,9 @@ checked connection
   - capture operands and saved guard positions are cross-checked against the compiler's factory, debug projections and typed coroutine layout
   - Pingora's own lock-allocation body is interpreted to establish its fresh, zero-permit allocation contract
 - [drop analysis](MIR_CHECK.md) checks that this same slot is preserved until its successful destruction on every normal-return cancellation path
+  - [generated destruction proof](DROP_OBLIGATIONS.md) additionally gives Verus every extracted edge and a candidate invariant
+  - Verus checks initialization, edge preservation and return safety, then proves the property for arbitrary finite paths by induction
+  - Python's reachable-state computation proposes the invariant; its safety conclusion is not a proof assumption
 - [cleanup translation](CLEANUP_SEMANTICS.md) derives Verus obligations from the actual guard destructor
   - its locked map snapshot loses the owner's entry, preserves any replacement and leaves other keys unchanged
   - notification precedes map-lock acquisition
