@@ -27,3 +27,9 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - status: presented Nov 16; agent read main text (not appendices)
 - points for advisors: real-Rust liveness precedent (runtime never drops a task, not app progress); 39.6k spec+proof vs 3.4k verified code (11.7x), Claude-assisted; assumes no cross-task cancel and single-threaded core
 - human's takeaways: (pending)
+- Lion also: "whole-application liveness is out of scope ... task abort mid-wait is unmodeled" (Sec. 5.2)
+
+## 5. Vest (Cai et al., USENIX Security 2025; file name says 2026)
+- status: presented Nov 16; agent read main text
+- points for advisors: verified Rust beats Rustls/rust-bitcoin; generates new verified code rather than verifying existing libraries; RFC ambiguity needed "occasional corrections"
+- human's takeaways: (pending)
