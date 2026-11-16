@@ -43,3 +43,9 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - status: presented Nov 16; agent read main text
 - points for advisors: correctness parametric in a user policy because "there is no one true spec"; found OpenSSL/Chrome RFC deviations and a malleability bug in Rust crate der; ~13k Verus lines, Firefox policy 6% faster; new replacement, not proof of existing code
 - human's takeaways: (pending)
+
+## 8. JEST (Park et al., ICSE 2021; stands in for ESMeta)
+- status: presented Nov 16; agent read main text
+- points for advisors: spec is not the oracle; 44 engine bugs + 27 ES11 spec bugs, confirmed by TC39; testing not proof
+- suggested meeting line (agent opinion): models of text merge proved (Gomes), real code of simple CRDTs proved safety-only (Nieto), real-Rust liveness now feasible at runtime layer (Lion); nobody proved convergence + liveness of real Rust sync libraries
+- human's takeaways: (pending)
