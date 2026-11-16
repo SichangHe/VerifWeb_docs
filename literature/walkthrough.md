@@ -17,3 +17,8 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - status: presented Nov 16; agent read the full paper
 - points for advisors: safety only, no eventual delivery (liveness) proved; no text CRDT, no Rust, no deployed library; ~30 Coq lines per OCaml line (Table 2)
 - human's takeaways: (pending)
+
+## 3. AMC: Automerge Model Checker (Jeffery, Mortier, PaPoC 2023)
+- status: presented Nov 16; agent read the full paper
+- points for advisors: authors say mechanized CRDT proofs "cannot aid more optimized implementations"; checking is bounded (1 key/index, 3 servers, depth 19) on a reliable ordered network; bugs found were app-level (list move duplicates, ID clashes)
+- human's takeaways: (pending)
