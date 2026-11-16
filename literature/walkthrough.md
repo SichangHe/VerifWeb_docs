@@ -33,3 +33,8 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - status: presented Nov 16; agent read main text
 - points for advisors: verified Rust beats Rustls/rust-bitcoin; generates new verified code rather than verifying existing libraries; RFC ambiguity needed "occasional corrections"
 - human's takeaways: (pending)
+
+## 6. WebSpec (Veronese et al., IEEE S&P 2023)
+- status: presented Nov 16; agent read main text + feature appendix
+- points for advisors: formal model found 2 new flaws from mechanism interactions, validated on Chrome/Firefox; single session, no network, security only (no multi-tab/sync/liveness); model tied to browsers by tests
+- human's takeaways: (pending)
