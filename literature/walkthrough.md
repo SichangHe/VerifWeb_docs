@@ -38,3 +38,8 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - status: presented Nov 16; agent read main text + feature appendix
 - points for advisors: formal model found 2 new flaws from mechanism interactions, validated on Chrome/Firefox; single session, no network, security only (no multi-tab/sync/liveness); model tied to browsers by tests
 - human's takeaways: (pending)
+
+## 7. Verdict (Lin et al., USENIX Security 2025)
+- status: presented Nov 16; agent read main text
+- points for advisors: correctness parametric in a user policy because "there is no one true spec"; found OpenSSL/Chrome RFC deviations and a malleability bug in Rust crate der; ~13k Verus lines, Firefox policy 6% faster; new replacement, not proof of existing code
+- human's takeaways: (pending)
