@@ -22,3 +22,8 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - status: presented Nov 16; agent read the full paper
 - points for advisors: authors say mechanized CRDT proofs "cannot aid more optimized implementations"; checking is bounded (1 key/index, 3 servers, depth 19) on a reliable ordered network; bugs found were app-level (list move duplicates, ID clashes)
 - human's takeaways: (pending)
+
+## 4. Lion: Modular Verification of Async Runtime Liveness (Zhou et al., SOSP 2026)
+- status: presented Nov 16; agent read main text (not appendices)
+- points for advisors: real-Rust liveness precedent (runtime never drops a task, not app progress); 39.6k spec+proof vs 3.4k verified code (11.7x), Claude-assisted; assumes no cross-task cancel and single-threaded core
+- human's takeaways: (pending)
