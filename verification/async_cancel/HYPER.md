@@ -2,7 +2,8 @@
 (authored by agents unless marked 🧑)
 
 result, 2026-11-18 UTC
-- conditional safety proof for the real compiled Hyper code, buggy vs fixed
+- conditional safety check, buggy vs fixed: Verus proves a hand-reviewed transition system whose facts are extracted from the real compiled MIR; not a refinement proof of Hyper
+  - prior work (h2 fuzzing, Lion's assumed peer signal): see [REPORT.md, Claims and prior work](REPORT.md#claims-and-prior-work); we found no prior verification of this Hyper code
   - fixed [`5b17a69`](https://github.com/hyperium/hyper/commit/5b17a69ebcf969471c1a19b25ed2cb81299d1be6): all MIR facts hold; Verus proves the hand-off obligation (`9 verified, 0 errors`)
   - parent `7211ec25`: MIR facts fail; Verus rejects (`8 verified, 1 errors`)
 - Hyper's own regression `conn::h2_pipe_task_cancelled_on_response_future_drop`

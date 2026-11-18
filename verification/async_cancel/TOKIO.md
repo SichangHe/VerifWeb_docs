@@ -6,7 +6,8 @@ result, 2026-11-18 UTC
   - upstream fix [tokio-rs/tokio#3652](https://github.com/tokio-rs/tokio/pull/3652), commit [`f7c181c`](https://github.com/tokio-rs/tokio/commit/f7c181c2c49ee28d7cb0773f5cdb4bec35b5a89b) (Tokio 1.4.0 era); parent `fee76ea7`
   - PR author's trace, quoted from the PR description:
     “`a.poll()` // adds a to waiters list, sets state to WAITING; `n.notify_waiters()` // removes a from waiters list, sets state to EMPTY; `n.notify_one()` // sets state to NOTIFIED; `drop(a)` // sets state to EMPTY; `n.notified().await` // waits forever”
-- conditional safety proof for the real compiled Tokio code, buggy vs fixed
+- conditional safety check of the real compiled drop path, buggy vs fixed; Verus proves it over a transition system in which only drop and `notify_locked` come from MIR
+  - prior work: Tokio's loom tests and Lion; see [REPORT.md, Claims and prior work](REPORT.md#claims-and-prior-work). Not new: model checking of Tokio `Notify`. New: unbounded drop-safety check derived from MIR of these 2021 commits
   - fixed `f7c181c`: all 6 MIR facts hold; Verus proves the obligation (`9 verified, 0 errors`)
   - parent `fee76ea7`: fact `drop_store_guarded` fails; Verus rejects (`8 verified, 1 errors`)
 - Tokio's own regression `notify_one_after_dropped_all`

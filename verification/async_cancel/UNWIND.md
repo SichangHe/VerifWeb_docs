@@ -3,6 +3,7 @@
 
 result, 2026-11-18 UTC
 - 🧑 “the human requires proving the real code conforms to the spec, not only a model”
+- prior work and claim limits: [REPORT.md, Claims and prior work](REPORT.md#claims-and-prior-work); extraction is trusted Python, so “holds” below means a check of the extracted graph, not a proof of the code
 - Pingora fixed (PR #1037, `b2aeef4`): the writer-lock invariant holds on every unwind path of the real compiled `RTCache::get`, except at exactly these places
   - 4 unwind edges between `lockers.insert` and guard construction: drop of the old map value, drop of the map write guard, `Option::as_ref`, the guard constructor (`Option::map` → `Arc::clone`)
   - unwinding inside `CacheLockGuard::drop` itself; which effects then ran is listed below
