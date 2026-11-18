@@ -1,0 +1,31 @@
+commit f7c181c2c49ee28d7cb0773f5cdb4bec35b5a89b
+Author: Simon Lindholm <simon.lindholm10@gmail.com>
+Date:   Tue Mar 30 09:18:07 2021 +0200
+
+    sync: fix notifications getting dropped on receiver drop (#3652)
+
+diff --git a/tokio/tests/sync_notify.rs b/tokio/tests/sync_notify.rs
+index 8ffe020f..6c6620b2 100644
+--- a/tokio/tests/sync_notify.rs
++++ b/tokio/tests/sync_notify.rs
+@@ -134,3 +134,20 @@ fn notify_in_drop_after_wake() {
+     // Now, notifying **should not** deadlock
+     notify.notify_waiters();
+ }
++
++#[test]
++fn notify_one_after_dropped_all() {
++    let notify = Notify::new();
++    let mut notified1 = spawn(async { notify.notified().await });
++
++    assert_pending!(notified1.poll());
++
++    notify.notify_waiters();
++    notify.notify_one();
++
++    drop(notified1);
++
++    let mut notified2 = spawn(async { notify.notified().await });
++
++    assert_ready!(notified2.poll());
++}
