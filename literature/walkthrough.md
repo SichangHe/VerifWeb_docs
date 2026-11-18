@@ -51,3 +51,7 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - human's takeaways: (pending)
 - human asked (Nov 18): do synced editors like Google Docs already use formally verified protocols?
   - answered: no; deployed editors run deployed code that no paper here verifies; proofs cover models (Gomes RGA, OT TP1 proofs) or small CRDTs (Nieto); Automerge only bounded-checked (AMC)
+
+## Pace change (Nov 18)
+🧑 Human, verbatim: "You went over all the papers too quickly, and I cannot, taking all of them at the same time. We need to, slow down and, go over them one by one. Step by step, instead. First thing I'm interested in is the, async runtime paper."
+- from now: one paper at a time, back-and-forth Q&A; restarting with Lion (SOSP 2026)
