@@ -46,7 +46,7 @@ trusted
 - the Verus transition system abstracts each function to the facts above; that abstraction is reviewed by hand, not derived
 - h2: `SendStream::send_reset` schedules RST_STREAM; dropping the last stream reference of an open stream schedules an implicit CANCEL reset
 - the executor drops a task after it returns Ready
-- unwinding/panic paths, `expect` panics, and h2 internals are out of scope
+- unwinding/panic paths, `expect` panics, and h2 internals are out of scope here; follow-up [UNWIND.md](UNWIND.md) covers unwinding
 
 open gaps
 - eventual delivery: needs the executor to poll pipe_task after the oneshot wake, h2 connection task progress and flushing, and the peer receiving the frame; only the runtime regression covers it, empirically
