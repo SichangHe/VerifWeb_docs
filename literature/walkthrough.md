@@ -49,3 +49,5 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - points for advisors: spec is not the oracle; 44 engine bugs + 27 ES11 spec bugs, confirmed by TC39; testing not proof
 - suggested meeting line (agent opinion): models of text merge proved (Gomes), real code of simple CRDTs proved safety-only (Nieto), real-Rust liveness now feasible at runtime layer (Lion); nobody proved convergence + liveness of real Rust sync libraries
 - human's takeaways: (pending)
+- human asked (Nov 18): do synced editors like Google Docs already use formally verified protocols?
+  - answered: no; deployed editors run deployed code that no paper here verifies; proofs cover models (Gomes RGA, OT TP1 proofs) or small CRDTs (Nieto); Automerge only bounded-checked (AMC)
