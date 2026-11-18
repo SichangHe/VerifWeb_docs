@@ -57,3 +57,7 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - from now: one paper at a time, back-and-forth Q&A; restarting with Lion (SOSP 2026)
 - Lion Q (Nov 18): "that cannot be the whole paper. There must be something else, right?" -> answered with the paper's 5 contributions (theorem, log method, async contracts, explicit assumptions, evaluation)
 - Lion Q (Nov 18): how they prove it; LLM use; token cost and "power" -> explained ghost log + async contracts + chaining (Sec. 4); LLM use = Claude assistant + mutation study (App. B); paper reports no tokens, person-time, verification time, or compute/energy, only LOC
+- standing rule (🧑 Nov 18, verbatim): "You need to go slower. And break it down even more." -> one concept per message, concrete examples, wait for the human
+- 🧑 takeaway (Nov 18, verbatim): "we should inject fault to formally verified programs, and see if verifiers and testing, would each spot them." (from Lion App. B: verifier caught all 10 injected bugs; stress tests missed the 4 timer bugs)
+- Lion Q (Nov 18): what the states, log and transitions are, and how they give liveness -> walked through Example 1 (simplified executor, Sec. 4.2)
+- open: discuss Lion's LLM use later (human's request)
