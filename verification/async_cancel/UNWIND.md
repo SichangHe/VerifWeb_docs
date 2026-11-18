@@ -15,6 +15,13 @@ result, 2026-11-18 UTC
   - if send_task unwinds there, the unsent `cancel_tx` is dropped; the compiled `PipeMap::poll` treats `Ready(Err)` as normal completion and never reaches `send_reset` (checked in MIR); the body keeps streaming with no RST_STREAM
   - unwinding in pipe_task drops `PipeMap` and its `SendStream`; the reset then depends on h2's last-reference drop, as in the no-pipe branch of [HYPER.md](HYPER.md)
   - Python-only fact extraction; no Verus model for this part
+- Hyper gap confirmed at runtime ([harness](real_hyper/h2_unwind_gap.rs), [runner](real_hyper/unwind_gap.sh)), 2026-11-18 UTC
+  - trigger is user code, no Hyper patch: `SendWhen::poll` runs `trace!("send_when canceled")` after `poll_canceled` is Ready and before `cancel`; with `--features tracing` and `--cfg hyper_unstable_tracing`, a user tracing `Subscriber` that panics on that event unwinds send_task there
+  - this call is absent from the 5-call list above because that MIR was built without `tracing`
+  - same scenario as Hyper's #4040 regression; result `test result: ok. 2 passed`
+    - control (subscriber installed, no panic): server gets RST_STREAM
+    - panicking subscriber: panic observed, server sees no RST_STREAM within 2 s
+  - reachability: only for users who opt into Hyper's unstable tracing and install a panicking subscriber; default builds compile `trace!` to nothing, leaving only the 5 library calls
 
 what “the invariant on unwind” means
 - obligation phases of one `get` activation
@@ -81,5 +88,6 @@ run
   - same with `--assume none` lists the 5 places and exits 1
   - parent with `--assume all` exits 1
   - `uv run --no-project python -m verification.async_cancel.unwind_mir_test SCRATCH/fixed/dump SCRATCH/parent/dump`: 6 checks, including 3 checker-input mutations (skip resume-cleanup guard drop, skip drop-cleanup guard drop, reader slot not None); each is rejected
+- Hyper gap: `bash real_hyper/unwind_gap.sh SCRATCH END`; delete SCRATCH after
 - Hyper: emit `hyper-fixed.mir` as in [real_hyper/build.sh](real_hyper/build.sh), then `uv run --no-project python -m verification.async_cancel.hyper_unwind hyper-fixed.mir`
 - executed with Verus 0.2026.11.02 and Z3 4.16.0; Verus needs `RUST_MIN_STACK` (set by the script) for the large certificate
