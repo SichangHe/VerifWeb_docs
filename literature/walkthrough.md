@@ -64,3 +64,4 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - Lion Q (Nov 18): how they ensure ticks pop/run, infinite polls, why one queue -> tick checked by Verus (cached=>poll, terminating loops); bounded polls is an unverified assumption; real executor has 4 queues
 - standing rule (🧑 Nov 18): reply through one channel only (amh or final output), never split one answer across both
 - Lion (Nov 18): human done with the proof method ("learned enough about how to prove liveness"); asked for the remaining important pieces
+- standing rule (🧑 Nov 18, verbatim): "Don't go over multiple things all at once. Do it one by one."
