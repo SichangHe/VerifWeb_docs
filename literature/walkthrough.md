@@ -72,3 +72,4 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - Lion (Nov 18): human asked manager to start an agent to find and read Lion's code; questions in /hdd1/sichangheagent/vl_meeting_work/out/lion_code_questions_1118.md
 - Lion Q (Nov 18): explicit state machines instead of async runtime? -> agent opinion: sans-IO state-machine core + small driver loop; fits epoll and io_uring; complexity from composing machines
 - 🧑 view (Nov 18): Lion did not solve the hard problem: proving channels and cross-thread wakeups. Agent check: channels covered within one core only; cross-thread not covered
+- Lion code: vlm57_lioncode.md reading github.com/stonysystems/lion (branch SOSP26AE); answers due in /hdd1/sichangheagent/vl_meeting_work/out/vlm57_lioncode/ANSWERS.md
