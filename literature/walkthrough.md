@@ -55,3 +55,4 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 ## Pace change (Nov 18)
 🧑 Human, verbatim: "You went over all the papers too quickly, and I cannot, taking all of them at the same time. We need to, slow down and, go over them one by one. Step by step, instead. First thing I'm interested in is the, async runtime paper."
 - from now: one paper at a time, back-and-forth Q&A; restarting with Lion (SOSP 2026)
+- Lion Q (Nov 18): "that cannot be the whole paper. There must be something else, right?" -> answered with the paper's 5 contributions (theorem, log method, async contracts, explicit assumptions, evaluation)
