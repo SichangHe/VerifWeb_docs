@@ -67,3 +67,4 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - standing rule (🧑 Nov 18, verbatim): "Don't go over multiple things all at once. Do it one by one."
 - 🧑 takeaway (Nov 18, verbatim): "Assumptions look pretty standard, and if we write a paper like this, we just should refer to existing work in terms of how we [do] assumptions"
 - Lion Q (Nov 18): how much simpler does dropping work-stealing make the runtime and proofs? -> paper gives no number; proof only covers single thread, multi-thread is future work; perf cost: >3x Tokio p99 inline, <=1.5x with yield chunking, throughput within 1%
+- correction (Nov 18): Lion is thread-per-core (independent single-threaded instance per core, no shared state, no work-stealing), not single-threaded overall; proof covers one instance
