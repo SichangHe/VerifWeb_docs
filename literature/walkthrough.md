@@ -61,3 +61,4 @@ Order from vl_meeting_work's out/reading_priority_1117.md: Nieto 2022, AMC 2023,
 - 🧑 takeaway (Nov 18, verbatim): "we should inject fault to formally verified programs, and see if verifiers and testing, would each spot them." (from Lion App. B: verifier caught all 10 injected bugs; stress tests missed the 4 timer bugs)
 - Lion Q (Nov 18): what the states, log and transitions are, and how they give liveness -> walked through Example 1 (simplified executor, Sec. 4.2)
 - open: discuss Lion's LLM use later (human's request)
+- Lion Q (Nov 18): how they ensure ticks pop/run, infinite polls, why one queue -> tick checked by Verus (cached=>poll, terminating loops); bounded polls is an unverified assumption; real executor has 4 queues
