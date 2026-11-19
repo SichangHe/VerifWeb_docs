@@ -25,6 +25,7 @@ obligation proved
 connection to the real code
 - `real_hyper/build.sh` emits whole-crate MIR from rustc 1.100.0 for both commits (`--features client,http2`, `RUSTC_BOOTSTRAP=1 --emit=mir`)
   - generic bodies, not monomorphized; same fresh lockfile for both sides
+  - field indices below are read from the compiled pin-project `Projection` literals (since 2026-11-19; see [MASTER.md](MASTER.md))
 - `hyper_mir.py` checks these facts on every normal-return path of the actual functions
   - F1 `<SendWhen as Future>::poll`: the arm where `discriminant(poll_canceled result) == 0` (Ready) calls `ResponseFutMap::cancel` on `Pin::as_mut(&mut project(self).0)` before every return
   - F2 `ResponseFutMap::cancel`: `Option::take` of projection field 4 (`Option<oneshot::Sender<()>>`); its `Some` arm calls `Sender::send(tx, ())`

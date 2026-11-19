@@ -97,6 +97,27 @@ def arm(f: Fn, scrutinee: str, value: str) -> str | None:
     return None
 
 
+def field_index(crate: str, self_ty: str, name: str) -> int:
+    """Index of field `name` in the pin-project-lite projection of `self_ty`.
+
+    MIR prints a struct aggregate's fields in declaration (index) order, so the
+    position of `name:` in the projection literal built by `project` is its index.
+    """
+    f = function(crate, rf"::project\(_1: Pin<&mut {re.escape(self_ty)}>\)")
+    if isinstance(f, str):
+        raise LookupError(f"project of {self_ty}: {f}")
+    lits = [
+        m[1] for ls in f.graph.values() for l in ls
+        if (m := re.fullmatch(rf"_0 = .*Projection::<.*?> \{{ (.*) \}};", l))
+    ]
+    if len(lits) != 1:
+        raise LookupError(f"{len(lits)} projection literals for {self_ty}")
+    names = [part.split(": ", 1)[0] for part in lits[0].split(", ")]
+    if names.count(name) != 1:
+        raise LookupError(f"field {name} not in projection of {self_ty}: {names}")
+    return names.index(name)
+
+
 def def_of(f: Fn, local: str) -> str:
     return f.defs.get(local, "<none>")
 
@@ -127,6 +148,15 @@ def calls_on_every_path(f: Fn, start: str, call: str, check) -> str | None:
     return None
 
 
+def futctx_index(crate: str, name: str) -> int | None:
+    """Index of a `FutCtx` field from its unique struct literal in the crate."""
+    lits = re.findall(r"= FutCtx::<B> \{ (.*) \};", crate)
+    if len(lits) != 1:
+        return None
+    names = [part.split(": ", 1)[0] for part in lits[0].split(", ")]
+    return names.index(name) if names.count(name) == 1 else None
+
+
 def facts(crate: str) -> dict[str, bool | str]:
     """Return named facts; a string value records why a fact failed."""
     out: dict[str, bool | str] = {}
@@ -150,7 +180,7 @@ def facts(crate: str) -> dict[str, bool | str]:
             src = re.fullmatch(
                 rf"Pin::<&mut ResponseFutMap<B, E>>::as_mut\(move ({LOCAL})\)", def_of(f, arg)
             )
-            return bool(src and projected_self(f, def_of(f, src[1]), 0, "ResponseFutMap<B, E>"))
+            return bool(src and projected_self(f, def_of(f, src[1]), field_index(crate, "SendWhen<B, E>", "when"), "ResponseFutMap<B, E>"))
 
         out["send_cancels_when"] = (
             calls_on_every_path(f, ready, r"ResponseFutMap::<B, E>::cancel", on_when) or True
@@ -167,7 +197,7 @@ def facts(crate: str) -> dict[str, bool | str]:
             if re.fullmatch(rf"{LOCAL} = Option::<futures_channel::oneshot::Sender<\(\)>>::take\(copy {LOCAL}\) -> .*", l)
         )
         opt, ptr = re.fullmatch(rf"({LOCAL}) = .*take\(copy ({LOCAL})\).*", taken).groups()
-        assert projected_self(f, def_of(f, ptr), 4, "Option<futures_channel::oneshot::Sender<()>>")
+        assert projected_self(f, def_of(f, ptr), field_index(crate, "ResponseFutMap<B, E>", "cancel_tx"), "Option<futures_channel::oneshot::Sender<()>>")
         some = arm(f, opt, "1")
 
         def is_tx(arg, rest):
@@ -192,7 +222,7 @@ def facts(crate: str) -> dict[str, bool | str]:
         )
         res, recv = re.fullmatch(rf"({LOCAL}) = .*\(move ({LOCAL}), move {LOCAL}\) -> .*", mapped).groups()
         src = re.fullmatch(rf"Option::<futures_channel::oneshot::Receiver<\(\)>>::as_mut\(copy ({LOCAL})\)", def_of(f, recv))
-        assert src and projected_self(f, def_of(f, src[1]), 3, "Option<futures_channel::oneshot::Receiver<()>>")
+        assert src and projected_self(f, def_of(f, src[1]), field_index(crate, "PipeMap<S>", "cancel_rx"), "Option<futures_channel::oneshot::Receiver<()>>")
         for p in paths(f, "bb0"):
             assert mapped in p, "a return path skips the cancel receiver poll"
         some = arm(f, res, "1")
@@ -202,13 +232,15 @@ def facts(crate: str) -> dict[str, bool | str]:
 
         def on_pipe(arg, rest):
             s = re.fullmatch(rf"Pin::<&mut PipeToSendStream<B>>::as_mut\(move ({LOCAL})\)", def_of(f, arg))
-            return bool(s and projected_self(f, def_of(f, s[1]), 0, "PipeToSendStream<B>")
+            return bool(s and projected_self(f, def_of(f, s[1]), field_index(crate, "PipeMap<S>", "pipe"), "PipeToSendStream<B>")
                         and rest == ", const h2::Reason::CANCEL")
 
         out["pipe_resets_on_cancel"] = (
             calls_on_every_path(f, ok, r"PipeToSendStream::<B>::send_reset", on_pipe) or True
         )
-        closure = fn(r"client\.rs:481:57: 481:61\}, _2: &mut futures_channel::oneshot::Receiver<\(\)>\)")
+        loc = re.search(r"\{closure@(src/proto/h2/client\.rs:[\d: ]+)\}", mapped)
+        assert loc, "map closure location not found"
+        closure = fn(re.escape(loc[1]) + r"\}, _2: &mut futures_channel::oneshot::Receiver<\(\)>\)")
         out["closure_polls_receiver"] = any(
             re.search(r"<futures_channel::oneshot::Receiver<\(\)> as Future>::poll\(", l)
             or re.search(r"<Pin<&mut futures_channel::oneshot::Receiver<\(\)>> as Future>::poll\(", l)
@@ -222,7 +254,7 @@ def facts(crate: str) -> dict[str, bool | str]:
         f = fn(r"mod\.rs.*::send_reset\(_1: Pin<&mut PipeToSendStream<S>>, _2: Reason\)")
         out["send_reset_reaches_h2"] = calls_on_every_path(
             f, "bb0", r"SendStream::<SendBuf<<S as Body>::Data>>::send_reset",
-            lambda a, r: projected_self(f, def_of(f, a), 0, "h2::SendStream") and r == ", copy _2",
+            lambda a, r: projected_self(f, def_of(f, a), field_index(crate, "PipeToSendStream<S>", "body_tx"), "h2::SendStream") and r == ", copy _2",
         ) or True
     except (LookupError, ValueError) as e:
         out["send_reset_reaches_h2"] = str(e)
@@ -232,13 +264,14 @@ def facts(crate: str) -> dict[str, bool | str]:
     lines = [l for ls in f.graph.values() for l in ls]
     pm = [l for l in lines if re.fullmatch(rf"{LOCAL} = PipeMap::<B> \{{.*", l)]
     out["pipe_holds_stream"] = False
+    body_tx = futctx_index(crate, "body_tx")
     if len(pm) == 1:
         pipe = re.search(rf"pipe: move ({LOCAL})", pm[0])[1]
         origin = def_of(f, def_of(f, pipe).removeprefix("move "))
         out["pipe_holds_stream"] = bool(re.fullmatch(
             rf"PipeToSendStream::<B>::new\(move {LOCAL}, move ({LOCAL})\)", origin
         )) and any(
-            re.fullmatch(rf"{LOCAL} = move \(_2\.3: h2::SendStream<.*>\);", l) for l in lines
+            re.fullmatch(rf"{LOCAL} = move \(_2\.{body_tx}: h2::SendStream<.*>\);", l) for l in lines
         ) and any(re.search(r"H2ClientFuture::<B, T, E>::Pipe \{ pipe: (copy|move) " + pm[0].split(" = ")[0] + r" \}", l) for l in lines)
 
     def via_some(local, ty):

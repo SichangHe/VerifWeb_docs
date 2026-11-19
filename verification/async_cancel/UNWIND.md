@@ -23,6 +23,7 @@ result, 2026-11-18 UTC
     - control (subscriber installed, no panic): server gets RST_STREAM
     - panicking subscriber: panic observed, server sees no RST_STREAM within 2 s
   - reachability: only for users who opt into Hyper's unstable tracing and install a panicking subscriber; default builds compile `trace!` to nothing, leaving only the 5 library calls
+  - still present on Hyper master `21da6a59`, 2026-11-19 UTC: same harness, same result ([MASTER.md](MASTER.md))
 
 what “the invariant on unwind” means
 - obligation phases of one `get` activation

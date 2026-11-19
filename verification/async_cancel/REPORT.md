@@ -33,10 +33,20 @@ Hyper HTTP/2 cancellation hand-off ([HYPER.md](HYPER.md))
 - ours adds: a safety hand-off property over unbounded interleavings, with facts extracted from real MIR at `5b17a69`; the parent is rejected. [UNWIND.md](UNWIND.md) adds an unwind gap confirmed at runtime.
 - must not claim: that RST_STREAM is eventually sent (liveness), or anything about h2 internals, which are trusted. The transition system is reviewed by hand, and channel exclusivity rests on a source search.
 
+Hyper HTTP/2 hand-off at current master `21da6a59` ([MASTER.md](MASTER.md))
+- prior: as above; plus our `5b17a69` check, whose checker hard-coded field indices that master's new `is_head` fields shifted
+- ours adds: the same facts and Verus proof (`9 verified, 0 errors`) on master MIR, with field indices now derived from the compiled projection literals; Hyper's #4040 regression passes. The tracing-unwind gap still exists on master, confirmed by a running test.
+- must not claim: "verified current Hyper". Same trust and limits as `5b17a69`: normal paths only, no liveness, hand-reviewed abstraction, trusted extraction.
+
 Pingora cache lock ([CONDITIONAL_CHECK.md](CONDITIONAL_CHECK.md), [UNWIND.md](UNWIND.md))
 - prior: we found no published verification, model checking or fuzzing of `pingora-memory-cache`. A web search for Pingora with formal verification or model checking found only bug-bounty fixes ([Cloudflare blog](https://blog.cloudflare.com/pingora-oss-smuggling-vulnerabilities/)). The pinned `read_through.rs` has one unit-test module.
 - ours adds: cancellation and unwind safety of the lock invariant for the real compiled `RTCache::get`, conditional on stated library contracts and no-unwind assumptions; the parent is rejected.
 - must not claim: an unconditional or complete library proof, liveness, or that we are first to verify async cancellation in Verus. Lion verifies a cancellation step (`remove_step`).
+
+Pingora cache lock at current master `3f87e92` ([MASTER.md](MASTER.md))
+- prior: PR #1037 itself describes the bug; it is still open, unmerged
+- ours adds: a running test shows the cancellation leak on master (`RTCache::get() is stuck`); master's `read_through.rs` is identical to the buggy parent, and our checkers reject it as they reject the parent
+- must not claim: any positive result for shipped Pingora. Our positive results cover only the unmerged PR head `b2aeef4`.
 
 ## Evidence and version boundary
 
