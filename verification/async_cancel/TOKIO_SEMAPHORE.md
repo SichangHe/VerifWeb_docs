@@ -1,7 +1,7 @@
 # Current Tokio batch semaphore: cancellation and permit conservation
 (authored by agents unless marked 🧑)
 
-Result, 2026-11-19 UTC, Tokio master `fc0d151` (tokio 1.54.1), `tokio/src/sync/batch_semaphore.rs`: dropping an `Acquire` future never lost a permit in any explored execution. Separately, we found a permit leak on master when the semaphore is closed during a re-poll; a loom test reproduces it. No prior report of it was found. Nothing was filed upstream.
+Result, 2026-11-19 UTC, Tokio master `fc0d151` (tokio 1.54.1), `tokio/src/sync/batch_semaphore.rs`: dropping an `Acquire` future never lost a permit in any explored execution. Separately, we found a permit leak on master when the semaphore is closed during a re-poll; a loom test reproduces it, and a second loom test shows its effect: a closed, drained bounded `mpsc` whose `recv()` never returns `None`. No prior report of it was found. Nothing was filed upstream.
 
 Why this component
 - the batch semaphore underlies Tokio's `Semaphore`, `Mutex`, `RwLock` and bounded `mpsc` (`Sender::reserve`/`send`)
@@ -48,7 +48,12 @@ Counterexample: leak when `close` races a re-poll
 - source, `batch_semaphore.rs` (`poll_acquire`): `if waiters.closed { return Poll::Ready(Err(AcquireError::closed())); }` runs after the CAS has subtracted permits held only in the local `acquired`
 - running test: [real_tokio/semaphore-loom.patch.rs](real_tokio/semaphore-loom.patch.rs), appended to Tokio's `loom_semaphore_batch.rs` (`LOOM_MAX_PREEMPTIONS=3`)
   - on master: `repoll_assign_close_conserves_permits ... FAILED`, `assertion `left == right` failed: permit leaked`; Tokio's other 8 loom semaphore tests pass
-- consequence, inference only (not reproduced): bounded `mpsc` decides "closed and drained" with `semaphore.is_idle()` (available == bound), in `chan.rs:347`: `if rx_fields.rx_closed && self.inner.semaphore.is_idle()`. After a leak, `is_idle` is never true. So `rx.close(); while let Some(_) = rx.recv().await {}`, the pattern in `Receiver::close`'s documentation, would not end while a `Sender` is alive
+- consequence on bounded `mpsc`: reproduced, 2026-11-19, loom test [real_tokio/mpsc-loom.patch.rs](real_tokio/mpsc-loom.patch.rs) appended to Tokio's `loom_mpsc.rs` (`LOOM_MAX_PREEMPTIONS=3`)
+  - mechanism: `chan.rs:347` returns `None` only when `rx_fields.rx_closed && self.inner.semaphore.is_idle()` (available == bound); a leaked permit keeps `is_idle` false forever
+  - scenario: `channel(2)` filled by `try_send`; a second `Sender` polls `reserve()` twice in one task; the receiver `try_recv`s both values, then `close()`s; a `Sender` stays alive; then `recv()` is polled once
+  - master `fc0d151`: `close_after_repoll_recv_returns_none ... FAILED`, `recv() did not return None after close: slot permit leaked (capacity 1 of 2)`
+  - control: master plus [real_tokio/semaphore-close-fix.patch](real_tokio/semaphore-close-fix.patch) (on the `waiters.closed` early return, add the locally `acquired` permits back to the counter): this test and `repoll_assign_close_conserves_permits` pass; all other `loom_semaphore_batch` tests and 17 other `loom_mpsc` tests pass. `loom_mpsc::try_recv` did not finish before the 4096 s `cpu-run` limit, so that run has no summary line. The patch is a candidate fix only; it was not reviewed beyond these tests
+  - so `rx.close(); while let Some(_) = rx.recv().await {}`, the pattern in `Receiver::close`'s documentation, never ends while a `Sender` lives, given this interleaving. The trigger needs a second poll of a queued `reserve` future before it is woken; whether real executors or combinators (`select!`, `join!`, spurious wakeups) do this often is not measured
 - not a cancellation (drop) bug: the drop path returns everything it owns. The leak is on the `close` path
 
 Method
@@ -92,10 +97,11 @@ Prior work, and what is new
   - the #8542 bookkeeping is shown to be necessary on master: removing it (`pre8542_fast_path`) is a cancellation leak through the coop path, not only through tracing panics
 - must not claim
   - "Tokio's semaphore is verified". The positive result is bounded, covers normal paths only, excludes `close` (which fails), and trusts the interpreter
-  - an observed `mpsc` hang; that consequence is inferred
+  - an `mpsc` hang observed in production; it is shown only in loom, for one interleaving
 
 Run (from the repository root; delete SCRATCH afterwards)
-- `bash verification/async_cancel/real_tokio/semaphore.sh SCRATCH END`: emits `SCRATCH/tokio.mir`, runs the loom tests; expected `loom exit: 101` with only `repoll_assign_close_conserves_permits` failing
+- `bash verification/async_cancel/real_tokio/semaphore.sh SCRATCH END`: emits `SCRATCH/tokio.mir`, runs the loom tests; expected `loom exit: 101` with only `repoll_assign_close_conserves_permits` failing, then `mpsc loom exit: 101` (the `mpsc` test fails)
 - `python3 -m verification.async_cancel.tokio_semaphore SCRATCH/tokio.mir [--sc] [--scenario NAME] [--mutate NAME]`: exit 0 = holds, 1 = violated, 2 = unsupported. With all scenarios, master exits 1 because of the close scenarios
 - `python3 -m verification.async_cancel.tokio_semaphore_test SCRATCH/tokio.mir`: never-closed scenarios, unmutated and each mutation, one process per run (the numbers above came from individual runs in parallel; a single process holding all runs was killed at 16G)
+- end-to-end run, 2026-11-19, rustc 1.100.0: `semaphore.sh` gave `loom exit: 101` (8 passed, 1 failed, as expected); `tokio_semaphore_test` exit 0: `unmutated three_futures: exit 0`, `batch_partial` 0, `try_forget_open` 0; `pre8542_fast_path: exits [1, 1, -9] (rejected)` (-9 = killed at the 16G limit, as in the individual runs); `drop_no_return` `[1, 1, 1]`; `drop_no_remove` `[1, 1, 1]`; `poll_clear_on_pending` `[2, 2, 2]`. No harness change was needed
 - each scenario takes from about 10 s to several minutes on one core; run under `cpu-run LOW`

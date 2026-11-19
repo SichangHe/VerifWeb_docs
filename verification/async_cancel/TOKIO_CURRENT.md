@@ -72,3 +72,4 @@ run
   - `python3 -m verification.async_cancel.tokio_current SCRATCH/tokio-master.mir` exits 0
   - `... --mutate NAME` for each mutation above exits non-zero
   - `python3 -m verification.async_cancel.tokio_current_test SCRATCH/tokio-master.mir` runs all five; the numbers above came from the individual commands, run in parallel
+  - end-to-end run, 2026-11-19: `build_current.sh` gave `loom exit: 0` (`12 passed`); `tokio_current_test` exit 0: `unmutated: exit 0`, `drop_unguarded_store: exit 1`, `drop_no_forward: exit 1`, `locked_err_no_store: exit 1`, `locked_unconditional_empty: exit 2`. No harness change was needed; it prints each counterexample trace, which is verbose but correct

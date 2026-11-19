@@ -14,8 +14,12 @@ cd "$scratch/src"
 CARGO_TARGET_DIR="$scratch/target" run env RUSTC_BOOTSTRAP=1 cargo rustc -p tokio --lib --features sync -- \
     "--emit=mir=$scratch/tokio.mir" >"$scratch/mir.log" 2>&1
 cat "$here/semaphore-loom.patch.rs" >>tokio/src/sync/tests/loom_semaphore_batch.rs
+cat "$here/mpsc-loom.patch.rs" >>tokio/src/sync/tests/loom_mpsc.rs
 set +e
 CARGO_TARGET_DIR="$scratch/loomtarget" RUSTFLAGS="--cfg loom -C debug-assertions" LOOM_MAX_PREEMPTIONS=3 \
     run cargo test --lib --release --features full -- sync::tests::loom_semaphore_batch >"$scratch/loom.log" 2>&1
 echo "loom exit: $?"
+CARGO_TARGET_DIR="$scratch/loomtarget" RUSTFLAGS="--cfg loom -C debug-assertions" LOOM_MAX_PREEMPTIONS=3 \
+    run cargo test --lib --release --features full -- sync::tests::loom_mpsc::close_after_repoll_recv_returns_none >"$scratch/mpsc.log" 2>&1
+echo "mpsc loom exit: $?"
 git checkout -q -- .
