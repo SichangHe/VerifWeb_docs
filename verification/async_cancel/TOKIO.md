@@ -49,7 +49,7 @@ trusted
 - `LinkedList::remove/pop_back/is_empty` have their usual meaning; unwind and panic paths are out of scope
 
 open gaps
-- not the current Tokio: the result is for the 2021 code at these two commits; today's `Notify` was rewritten (per-waiter atomic `notification`), and is not checked
+- not the current Tokio: the result is for the 2021 code at these two commits; current master is checked separately in [TOKIO_CURRENT.md](TOKIO_CURRENT.md)
 - liveness (the next `notified().await` actually completes) is covered only by the regression test
 - `notify_one`, `notify_waiters` and `poll` are hand-modelled; a refinement proof would extract them too
 - MIR-to-Verus abstraction and parser are unverified; this is a compiler-derived check, not a refinement proof

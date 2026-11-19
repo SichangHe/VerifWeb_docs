@@ -1,0 +1,93 @@
+diff --git a/tokio/src/sync/tests/loom_notify.rs b/tokio/src/sync/tests/loom_notify.rs
+index 081cfd21..b70488a3 100644
+--- a/tokio/src/sync/tests/loom_notify.rs
++++ b/tokio/src/sync/tests/loom_notify.rs
+@@ -328,3 +328,88 @@ fn notify_waiters_sequential_notified_await() {
+         receiver.join().unwrap();
+     });
+ }
++
++/// Added by the VerifWeb study (not upstream): a `notify_one` permit must
++/// survive dropping a `Notified` that received it, while other threads race
++/// on the lock-free paths of `Notify`.
++mod drop_forward_race {
++    use crate::sync::Notify;
++    use std::sync::Arc;
++    use loom::thread;
++    use std::future::Future;
++    use std::pin::Pin;
++    use std::task::{Context, Poll};
++
++    fn poll_once<F: Future>(f: Pin<&mut F>) -> Poll<F::Output> {
++        let waker = futures::task::noop_waker();
++        f.poll(&mut Context::from_waker(&waker))
++    }
++
++    /// Two notify_one calls, one dropped waiter, nobody consumes: a permit
++    /// must remain.
++    #[test]
++    fn drop_vs_notify_one() {
++        loom::model(|| {
++            let notify = Arc::new(Notify::new());
++            let mut f1 = Box::pin(notify.clone().notified_owned());
++            assert!(poll_once(f1.as_mut()).is_pending());
++            let (n1, n2) = (notify.clone(), notify.clone());
++            let a = thread::spawn(move || n1.notify_one());
++            let b = thread::spawn(move || n2.notify_one());
++            let c = thread::spawn(move || drop(f1));
++            a.join().unwrap();
++            b.join().unwrap();
++            c.join().unwrap();
++            let mut f = Box::pin(notify.notified());
++            assert!(poll_once(f.as_mut()).is_ready(), "permit lost");
++        });
++    }
++
++    /// One notify_one, one dropped waiter, one racing consumer polled once:
++    /// the consumer either completed, or completes on its next poll.
++    #[test]
++    fn drop_vs_consumer() {
++        loom::model(|| {
++            let notify = Arc::new(Notify::new());
++            let mut f1 = Box::pin(notify.clone().notified_owned());
++            assert!(poll_once(f1.as_mut()).is_pending());
++            let n1 = notify.clone();
++            let n2 = notify.clone();
++            let a = thread::spawn(move || n1.notify_one());
++            let c = thread::spawn(move || drop(f1));
++            let d = thread::spawn(move || {
++                let mut f2 = Box::pin(n2.notified_owned());
++                if poll_once(f2.as_mut()).is_pending() {
++                    Some(f2)
++                } else {
++                    None
++                }
++            });
++            a.join().unwrap();
++            c.join().unwrap();
++            if let Some(mut f2) = d.join().unwrap() {
++                assert!(poll_once(f2.as_mut()).is_ready(), "permit lost");
++            }
++        });
++    }
++
++    /// The tokio#3652 shape with racing threads: notify_waiters, notify_one
++    /// and drop of the waiter. A fresh future must then find the permit.
++    #[test]
++    fn drop_vs_notify_waiters_and_one() {
++        loom::model(|| {
++            let notify = Arc::new(Notify::new());
++            let mut f1 = Box::pin(notify.clone().notified_owned());
++            assert!(poll_once(f1.as_mut()).is_pending());
++            let (n1, n2) = (notify.clone(), notify.clone());
++            let a = thread::spawn(move || n1.notify_waiters());
++            let b = thread::spawn(move || n2.notify_one());
++            let c = thread::spawn(move || drop(f1));
++            a.join().unwrap();
++            b.join().unwrap();
++            c.join().unwrap();
++            let mut f = Box::pin(notify.notified());
++            assert!(poll_once(f.as_mut()).is_ready(), "permit lost");
++        });
++    }
++}

@@ -22,6 +22,11 @@ Tokio `Notify` #3652 ([TOKIO.md](TOKIO.md))
 - ours adds: safety (no permit lost on drop) for all interleavings and unbounded traces, at the 2021 commits only. The drop step is extracted from real MIR; the buggy parent is rejected.
 - must not claim: "verified Tokio's Notify" or "verified current Tokio". `notify_one`, `notify_waiters` and `poll` are hand-modelled. Liveness and unwind are not covered. Atomicity is argued, not checked, where loom checks it for small programs.
 
+Tokio `Notify` at current master `fc0d151` ([TOKIO_CURRENT.md](TOKIO_CURRENT.md))
+- prior: the same loom suite. Observed: with the #3652 guard removed from current `drop_notified`, all 9 existing loom Notify tests still pass.
+- ours adds: the real MIR of all five operations (`notify_one`/`notify_last`, `notify_locked`, `notify_waiters`, `poll`, drop) is executed by an abstract interpreter. It searches every number of futures and threads exhaustively under stated C11 stale-load rules. Result: no non-receive step loses a pending permit. Four MIR mutations are rejected. Three new loom tests pass on master; one fails on the re-injected #3652 bug.
+- must not claim: a Verus or refinement proof, or "verified Tokio's Notify". The result is a search over a sound finite abstraction by a trusted Python interpreter, for one safety property on normal paths. Library semantics, some counter facts and the C11-to-interleaving argument are trusted.
+
 Hyper HTTP/2 cancellation hand-off ([HYPER.md](HYPER.md))
 - prior: h2 has in-tree cargo-fuzz targets (`fuzz_client`, `fuzz_e2e`, `fuzz_hpack`). The OSS-Fuzz harness repo [hyperium-fuzz](https://github.com/hyperium/hyperium-fuzz), "Consolidated fuzzing for hyperium crates", targets `h2`, `http`, `httparse` and `httpdate`; its last commit is 2023-07-06. We found no fuzz target for Hyper's client dispatch (`SendWhen`, `PipeMap`), and no model checking or verification of Hyper or h2.
 - prior: Lion's utility-to-runtime chain assumes the peer signal that Hyper's fix adds; see [LION.md](LION.md).
