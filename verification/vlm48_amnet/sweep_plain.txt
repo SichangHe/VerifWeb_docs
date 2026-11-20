@@ -1,0 +1,13 @@
+
+running 1 test
+RESULT scen=plain loss=0 reorder=0 fix=false runs=500 stalled=0 converged=500 median_ms_to_converge=11 wall=6.499908368s
+RESULT scen=plain loss=0 reorder=0 fix=true runs=500 stalled=0 converged=500 median_ms_to_converge=11 wall=6.563198918s
+RESULT scen=plain loss=0 reorder=0.5 fix=false runs=500 stalled=0 converged=500 median_ms_to_converge=43 wall=7.113763177s
+RESULT scen=plain loss=0 reorder=0.5 fix=true runs=500 stalled=0 converged=500 median_ms_to_converge=43 wall=7.191183449s
+RESULT scen=plain loss=0.02 reorder=0 fix=false runs=500 stalled=21 converged=479 median_ms_to_converge=11 wall=13.054973511s
+RESULT scen=plain loss=0.02 reorder=0 fix=true runs=500 stalled=0 converged=500 median_ms_to_converge=11 wall=7.13536853s
+test sweep has been running for over 60 seconds
+RESULT scen=plain loss=0.05 reorder=0 fix=false runs=500 stalled=46 converged=454 median_ms_to_converge=11 wall=16.463918129s
+RESULT scen=plain loss=0.05 reorder=0 fix=true runs=500 stalled=0 converged=500 median_ms_to_converge=32 wall=8.111994362s
+RESULT scen=plain loss=0.1 reorder=0 fix=false runs=500 stalled=97 converged=403 median_ms_to_converge=43 wall=27.053076571s
+RESULT scen=plain loss=0.1 reorder=0 fix=true runs=500 stalled=0 converged=500 median_ms_to_converge=197 wall=16.930168268s

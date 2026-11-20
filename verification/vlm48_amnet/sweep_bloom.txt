@@ -1,0 +1,16 @@
+
+running 1 test
+RESULT scen=bloom loss=0 reorder=0 fix=false runs=300 stalled=0 converged=300 median_tries=62 wall=4.650589678s
+RESULT scen=bloom loss=0 reorder=0 fix=true runs=300 stalled=0 converged=300 median_tries=58 wall=4.627865919s
+RESULT scen=bloom loss=0 reorder=0.5 fix=false runs=300 stalled=0 converged=300 median_tries=56 wall=4.932981353s
+RESULT scen=bloom loss=0 reorder=0.5 fix=true runs=300 stalled=0 converged=300 median_tries=57 wall=4.931814927s
+RESULT scen=bloom loss=0 reorder=1 fix=false runs=300 stalled=0 converged=300 median_tries=57 wall=5.629891312s
+RESULT scen=bloom loss=0 reorder=1 fix=true runs=300 stalled=0 converged=300 median_tries=59 wall=5.54507970RESRESULT scen=bloom loss=0.05 reorder=0 fix=false runs=300 stalled=37 converged=263 median_tries=55 wall=12.951623488s
+RESULT scen=bloom loss=0.05 reorder=0 fix=true runs=300 stalled=0 converged=300 median_tries=51 wall=5.434012245s
+test sweep has been running for over 60 seconds
+RESULT scen=bloom loss=0.1 reorder=0.5 fix=false runs=300 stalled=68 converged=232 median_tries=58 wall=18.308878309s
+RESULT scen=bloom loss=0.1 reorder=0.5 fix=true runs=300 stalled=0 converged=300 median_tries=58 wall=6.410203985s
+test sweep ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 73.53s
+

@@ -1,0 +1,7 @@
+RESULT bloom entries=1 trials=2000000 false_positives=21547 rate=0.01077
+RESULT bloom entries=2 trials=2000000 false_positives=33663 rate=0.01683
+RESULT bloom entries=3 trials=2000000 false_positives=28431 rate=0.01422
+RESULT bloom entries=4 trials=2000000 false_positives=32396 rate=0.01620
+RESULT bloom entries=6 trials=2000000 false_positives=19082 rate=0.00954
+RESULT bloom entries=8 trials=2000000 false_positives=23908 rate=0.01195
+RESULT bloom entries=16 trials=2000000 false_positives=20200 rate=0.01010
