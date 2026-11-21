@@ -61,7 +61,7 @@ Method: Google Scholar (22 queries, mostly `as_ylo=2022`, older classics unfilte
   - "implemented and verified in the Coq proof assistant, and is mechanised with respect to the WasmCert-Coq formalisation of the WebAssembly standard"
   - verified end-to-end to Wasm; source is Gallina, not Rust; no memory minimization
 - Bosamiya, Lim, Parno, "Provably-Safe Multilingual Software Sandboxing using WebAssembly", USENIX Security 2022 — verified Wasm→native for safety, not memory
-- translation validation for LLVM (Alive2 line; e.g. "Translation Validation for LLVM's AArch64 Backend", 2025, https://dl.acm.org/doi/abs/10.1145/3729322 is not it — see Scholar query "translation validation LLVM Alive2 memory")
+- translation validation for LLVM: Alive2 line, e.g. Berger et al., "Translation Validation for LLVM's AArch64 Backend", 2025 (ACM; Scholar snippet only: "… translation valid…")
   - inference: Alive2 validates IR-level rewrites within one function; data-layout changes across a whole program are outside its usual scope; I don't know of Alive2 work on type-layout changes
 - Rust verifiers (Verus, Aeneas, Creusot, Kani): I found no paper using them to verify a layout-changing transformation; I don't know if one exists
 
