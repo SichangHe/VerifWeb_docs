@@ -128,6 +128,8 @@ tokenized_state_machine!{
             #[sharding(variable)] pub next_id: nat,
             // initial + added - forgotten
             #[sharding(not_tokenized)] pub total: nat,
+            // whether `close` may ever be called (false for Mutex and RwLock, which never close)
+            #[sharding(constant)] pub closable: bool,
         }
 
         pub open spec fn ledger(&self) -> nat {
@@ -173,6 +175,7 @@ tokenized_state_machine!{
             &&& self.counter.closed == self.lk.closed
             &&& (!self.lk.closed && self.lk.queue.len() > 0 ==> self.lk.blocked)
             &&& (self.lk.blocked && !self.lk.closed ==> self.counter.permits == 0)
+            &&& (!self.closable ==> !self.counter.closed)
         }
 
         #[invariant]
@@ -189,7 +192,7 @@ tokenized_state_machine!{
         }
 
         init!{
-            initialize(n: nat) {
+            initialize(n: nat, closable: bool) {
                 require(n <= MAXP());
                 init counter = CounterG { permits: n, closed: false };
                 init lk = LockG { queue: Seq::empty(), reg: Set::empty(), closed: false, blocked: false, popping: false };
@@ -201,6 +204,7 @@ tokenized_state_machine!{
                 init budget = (MAXP() - n) as nat;
                 init next_id = 0;
                 init total = n;
+                init closable = closable;
             }
         }
 
@@ -374,6 +378,7 @@ tokenized_state_machine!{
 
         transition!{
             close_bit() {
+                require(pre.closable);
                 update counter = CounterG { closed: true, ..pre.counter };
                 update lk = LockG { closed: true, ..pre.lk };
             }
@@ -404,6 +409,27 @@ tokenized_state_machine!{
             }
         }
 
+        // a client object moves k permits it holds to another of its keyed tokens
+        // (SemaphorePermit::merge/split, mpsc Permit::send into the message)
+        transition!{
+            transfer(from: Key, to: Key, a: nat, b: nat, k: nat) {
+                require(from != to && k <= a && from is O && to is O);
+                remove fl -= (Map::empty().insert(from, a).insert(to, b));
+                add fl += (Map::empty().insert(from, (a - k) as nat).insert(to, b + k));
+            }
+        }
+
+        // SemaphorePermit::forget: the permits leave circulation for good
+        transition!{
+            forget_held(op: Key, k: nat) {
+                require(op is O);
+                remove fl -= [op => let a];
+                require(k <= a);
+                add fl += [op => (a - k) as nat];
+                update total = (pre.total - k) as nat;
+            }
+        }
+
         // release(k) of brand-new permits (Semaphore::add_permits)
         transition!{
             mint(op: nat, k: nat) {
@@ -431,6 +457,18 @@ tokenized_state_machine!{
                     lemma_cmap_finite(pre.own, pre.ws);
                     lemma_msum_ge(pre.fl, op);
                 };
+            }
+        }
+
+        property!{
+            open_word() {
+                assert(!pre.closable ==> !pre.counter.closed);
+            }
+        }
+
+        property!{
+            open_lk() {
+                assert(!pre.closable ==> !pre.lk.closed);
             }
         }
 
@@ -479,7 +517,7 @@ tokenized_state_machine!{
         }
 
         #[inductive(initialize)]
-        fn initialize_inductive(post: Self, n: nat) {
+        fn initialize_inductive(post: Self, n: nat, closable: bool) {
             assert(cmap(post.own, post.ws) =~= Map::empty());
             assert(msum(Map::<nat, nat>::empty()) == 0);
             assert(msum(Map::<Key, nat>::empty()) == 0);
@@ -732,6 +770,33 @@ tokenized_state_machine!{
             assert(post.fl =~= pre.fl.insert(Key::O(op), pre.fl[Key::O(op)] + k));
             let a = pre.fl[Key::O(op)];
             lemma_msum_insert(pre.fl, Key::O(op), a + k);
+            assert(cmap(post.own, post.ws) =~= cmap(pre.own, pre.ws));
+        }
+
+        #[inductive(transfer)]
+        fn transfer_inductive(pre: Self, post: Self, from: Key, to: Key, a: nat, b: nat, k: nat) {
+            let mp = Map::empty().insert(from, a).insert(to, b);
+            assert(mp.dom().contains(from) && mp.dom().contains(to) && mp[from] == a && mp[to] == b);
+            assert(mp.submap_of(pre.fl));
+            assert(mp.dom().contains(from) ==> pre.fl.dom().contains(from));
+            assert(pre.fl.dom().contains(from));
+            assert(pre.fl[from] == a);
+            assert(mp.dom().contains(to) ==> pre.fl.dom().contains(to));
+            assert(pre.fl.dom().contains(to));
+            assert(pre.fl[to] == b);
+            let m1 = pre.fl.insert(from, (a - k) as nat);
+            assert(m1.dom().contains(to) && m1[to] == b);
+            assert(post.fl =~= m1.insert(to, b + k));
+            lemma_msum_insert(pre.fl, from, (a - k) as nat);
+            lemma_msum_insert(m1, to, b + k);
+            assert(cmap(post.own, post.ws) =~= cmap(pre.own, pre.ws));
+        }
+
+        #[inductive(forget_held)]
+        fn forget_held_inductive(pre: Self, post: Self, op: Key, k: nat) {
+            let a = pre.fl[op];
+            assert(post.fl =~= pre.fl.insert(op, (a - k) as nat));
+            lemma_msum_insert(pre.fl, op, (a - k) as nat);
             assert(cmap(post.own, post.ws) =~= cmap(pre.own, pre.ws));
         }
 
@@ -1075,6 +1140,8 @@ pub tracked enum Source {
     Held(Sem::held),
     /// brand-new permits (`Semaphore::add_permits`)
     Mint(Sem::budget),
+    /// permits already held in the `op` token itself (a client's keyed token)
+    Stashed,
 }
 
 // ======================================================================
@@ -1162,14 +1229,15 @@ impl Semaphore {
     pub const CLOSED: usize = 1;
     pub const PERMIT_SHIFT: usize = 1;
 
-    pub fn new(permits: usize) -> (r: (Self, Tracked<Sem::budget>))
+    pub fn new(permits: usize, Ghost(closable): Ghost<bool>) -> (r: (Self, Tracked<Sem::budget>))
         requires permits <= MAXP(),
         ensures r.0.wf(), r.1@.instance_id() == r.0.inst@.id(), r.1@.count() == MAXP() - permits,
+            r.0.inst@.closable() == closable,
     {
         proof { lemma_max(); }
         runtime_assert(permits <= Self::MAX_PERMITS);
         let tracked (Tracked(inst), Tracked(counter), Tracked(lk), Tracked(_ws), Tracked(_own), Tracked(_nums),
-            Tracked(_fl), Tracked(_held), Tracked(budget), Tracked(next_id)) = Sem::Instance::initialize(permits as nat);
+            Tracked(_fl), Tracked(_held), Tracked(budget), Tracked(next_id)) = Sem::Instance::initialize(permits as nat, closable);
         proof { lemma_shl1(permits); }
         let w = Waitlist { queue: LinkedList::new(), closed: false }; // VERUS: `Mutex::new(Waitlist {..})` built in steps: the Waitlist, then a vstd RwLock holding it with the ghost token
         let ghost pred = LockPred { inst_id: inst.id() };
@@ -1208,10 +1276,11 @@ impl Semaphore {
     pub fn release(&self, added: usize, Tracked(op): Tracked<&mut Sem::fl>, Tracked(src): Tracked<Source>)
         requires
             self.wf(),
-            old(op).instance_id() == self.inst@.id(), old(op).key() is O, old(op).value() == 0,
+            old(op).instance_id() == self.inst@.id(), old(op).key() is O,
             match src {
-                Source::Held(h) => h.instance_id() == self.inst@.id() && h.count() == added,
-                Source::Mint(b) => b.instance_id() == self.inst@.id() && b.count() == added,
+                Source::Held(h) => h.instance_id() == self.inst@.id() && h.count() == added && old(op).value() == 0,
+                Source::Mint(b) => b.instance_id() == self.inst@.id() && b.count() == added && old(op).value() == 0,
+                Source::Stashed => old(op).value() == added,
             },
         ensures
             op.instance_id() == old(op).instance_id(), op.key() == old(op).key(), op.value() == 0,
@@ -1226,6 +1295,7 @@ impl Semaphore {
             let tracked f2 = match src {
                 Source::Held(h) => self.inst.borrow().begin_release(f.key()->O_0, added as nat, f, h),
                 Source::Mint(b) => self.inst.borrow().mint(f.key()->O_0, added as nat, f, b),
+                Source::Stashed => f,
             };
             *op = f2;
         }
@@ -1234,7 +1304,7 @@ impl Semaphore {
 
     #[verifier::loop_isolation(false)]
     pub fn close(&self)
-        requires self.wf(),
+        requires self.wf(), self.inst@.closable(),
     {
         let (mut waiters, Tracked(mut lk)) = self.waiters.lock();
         atomic_with_ghost!(&self.permits => fetch_or(Self::CLOSED);
@@ -1305,15 +1375,17 @@ impl Semaphore {
         ensures
             r is Ok ==> (*out matches Some(h) && h.instance_id() == self.inst@.id() && h.count() == num_permits),
             r is Err ==> *out is None,
+            r matches Err(TryAcquireError::Closed) ==> self.inst@.closable(),
     {
         proof { lemma_max(); }
         runtime_assert(num_permits <= Self::MAX_PERMITS);
         proof { lemma_shl1(num_permits); }
         let ghost orig = num_permits;
         let num_permits = num_permits << Self::PERMIT_SHIFT;
-        let mut curr = atomic_with_ghost!(&self.permits => load(); ghost g => {});
+        let mut curr = atomic_with_ghost!(&self.permits => load(); ghost g => { self.inst.borrow().open_word(&g); });
         loop
             invariant self.wf(), *out is None, num_permits as int == 2 * (num_permits / 2), num_permits / 2 <= MAXP(), num_permits / 2 == orig,
+                !self.inst@.closable() ==> curr % 2 == 0,
         {
             proof { lemma_word(curr); }
             // Has the semaphore closed?
@@ -1329,6 +1401,7 @@ impl Semaphore {
                 update prv -> nxt;
                 returning res;
                 ghost g => {
+                    self.inst.borrow().open_word(&g);
                     if res is Ok {
                         let tracked h = self.inst.borrow().try_take((num_permits / 2) as nat, &mut g);
                         *out = Some(h);
@@ -1518,6 +1591,7 @@ impl Semaphore {
             own.value() != Own::Done,
             *queued == (own.value() == Own::Fast || own.value() == Own::Reg),
             ret matches Poll::Ready(Ok(_)) ==> own.value() == Own::Fast,
+            ret matches Poll::Ready(Err(_)) ==> self.inst@.closable(),
     {
         let id = Ghost(node.id@);
         let mut acquired: usize = 0; // VERUS: `let mut acquired = 0;` with the type written out
@@ -1537,7 +1611,7 @@ impl Semaphore {
         let ghost mut blk = false;
         // First, try to take the requested number of permits from the
         // semaphore.
-        let mut curr = atomic_with_ghost!(&self.permits => load(); ghost g => {});
+        let mut curr = atomic_with_ghost!(&self.permits => load(); ghost g => { self.inst.borrow().open_word(&g); });
         // VERUS: `let mut waiters = loop { .. break value .. }` written with an Option
         let mut out: Option<MutexGuard<'_>> = None;
         // VERUS: `let mut waiters = loop {` (break value via `out`)
@@ -1559,6 +1633,7 @@ impl Semaphore {
                 fl.instance_id() == self.inst@.id(), fl.key() == Key::W(id@), fl.value() == acquired,
                 nt.instance_id() == self.inst@.id(), nt.key() == id@, nt.value() == num_permits as nat,
                 blk ==> lkt is Some && lkt->0.value().blocked && !lkt->0.value().closed,
+                !self.inst@.closable() ==> curr % 2 == 0,
             ensures
                 out matches Some(g) && lkt matches Some(t) && g.h.rwlock() == self.waiters.rw && wl_inv(self.inst@.id(), &g.w, t) && !t.value().popping,
                 fl.value() == acquired,
@@ -1604,6 +1679,7 @@ impl Semaphore {
                 update prv -> nxt;
                 returning res;
                 ghost g => {
+                    self.inst.borrow().open_word(&g);
                     if res is Ok {
                         if remaining > 0 {
                             let tracked mut t = lkt.tracked_take();
@@ -1659,6 +1735,7 @@ impl Semaphore {
         }
         let mut waiters = out.unwrap(); // VERUS: end of `let mut waiters = loop {..};` (break value via `out`)
         let tracked mut lk = lkt.tracked_unwrap();
+        proof { self.inst.borrow().open_lk(&lk); }
 
         if waiters.w.closed {
             if acquired > 0 {
@@ -1809,6 +1886,7 @@ impl<'a> Acquire<'a> {
                 &&& *out matches Some(h) && h.instance_id() == self.semaphore.inst@.id() && h.count() == self.num_permits
             },
             !(ret matches Poll::Ready(Ok(_))) ==> self.own@.value() != Own::Done && *out is None,
+            ret matches Poll::Ready(Err(_)) ==> self.semaphore.inst@.closable(),
     {
         // ready!(crate::trace::trace_leaf(cx));   VERUS: taskdump-only, returns Ready
 

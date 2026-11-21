@@ -206,4 +206,5 @@ def main():
         print(f"    allowed {n}: {c}")
     sys.exit(1 if unexplained else 0)
 
-main()
+if __name__ == "__main__":
+    main()
