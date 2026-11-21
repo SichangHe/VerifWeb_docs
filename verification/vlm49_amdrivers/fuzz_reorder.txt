@@ -1,0 +1,8 @@
+{"N":2500,"reorder":"1","gen":"each","edits":8,"stuck":0}
+{"N":2500,"reorder":"1","gen":"batch","edits":8,"stuck":0}
+{"N":2500,"reorder":"1","gen":"each","edits":8,"stuck":0}
+{"N":2500,"reorder":"1","gen":"batch","edits":8,"stuck":3}
+{"N":2500,"reorder":"1","gen":"each","edits":8,"stuck":0}
+{"N":2500,"reorder":"1","gen":"batch","edits":8,"stuck":1}
+{"N":2500,"reorder":"1","gen":"each","edits":8,"stuck":0}
+{"N":2500,"reorder":"1","gen":"batch","edits":8,"stuck":0}

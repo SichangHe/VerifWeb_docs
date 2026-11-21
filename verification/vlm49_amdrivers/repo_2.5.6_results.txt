@@ -1,0 +1,14 @@
+{"version":"2.5.6","loss":0,"reorder":0,"runs":300,"errs":0,"stalled":0,"stalledWithZeroDrops":0,"totalSent":14767,"totalReordered":0,"stillTalkingStalled":0}
+{"version":"2.5.6","loss":0,"reorder":0.5,"runs":300,"errs":0,"stalled":0,"stalledWithZeroDrops":0,"totalSent":17369,"totalReordered":8541,"stillTalkingStalled":0}
+{"version":"2.5.6","loss":0,"reorder":1,"runs":300,"errs":0,"stalled":0,"stalledWithZeroDrops":0,"totalSent":18655,"totalReordered":18655,"stillTalkingStalled":0}
+error waiting for 3G6sWizHpWMATFDaz2kN14n7E5sd to be in one of states: ready
+file:///hdd1/sichangheagent/vl_meeting_work/out/vlm49_amdrivers/harness/node_modules/@automerge/automerge-repo/dist/helpers/withTimeout.js:9
+        timeoutId = setTimeout(() => reject(new TimeoutError(`withTimeout: timed out after ${t}ms`)), t);
+                                            ^
+
+TimeoutError: withTimeout: timed out after 60000ms
+    at Timeout.<anonymous> (file:///hdd1/sichangheagent/vl_meeting_work/out/vlm49_amdrivers/harness/node_modules/@automerge/automerge-repo/dist/helpers/withTimeout.js:9:45)
+    at listOnTimeout (node:internal/timers:588:17)
+    at process.processTimers (node:internal/timers:523:7)
+
+Node.js v22.21.1

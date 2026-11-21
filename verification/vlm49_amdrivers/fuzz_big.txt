@@ -1,0 +1,19 @@
+{"N":20000,"reorder":"0","gen":"batch","edits":8,"stuck":0}
+
+
+#
+# Fatal error in , line 0
+# unreachable code
+#
+#
+#
+#FailureMessage Object: 0x7ffe8fdd8ec0
+----- Native stack trace -----
+
+ 1: 0x5592240a80c5  [node]
+ 2: 0x5592252f9a83 V8_Fatal(char const*, ...) [node]
+ 3: 0x5592243fef81  [node]
+ 4: 0x5592244053ac v8::internal::Deoptimizer::DoComputeBuiltinContinuation(v8::internal::TranslatedFrame*, int, v8::internal::BuiltinContinuationMode) [node]
+ 5: 0x559224406434 v8::internal::Deoptimizer::DoComputeOutputFrames() [node]
+ 6: 0x5591c4e4051e 
+Trace/breakpoint trap (core dumped)
