@@ -3,6 +3,8 @@
 
 Result, 2026-11-19 UTC, Tokio master `fc0d151` (tokio 1.54.1), `tokio/src/sync/batch_semaphore.rs`: dropping an `Acquire` future never lost a permit in any explored execution. Separately, we found a permit leak on master when the semaphore is closed during a re-poll; a loom test reproduces it, and a second loom test shows its effect: a closed, drained bounded `mpsc` whose `recv()` never returns `None`. No prior report of it was found. Nothing was filed upstream.
 
+Follow-up, 2026-11-20: an unbounded Verus proof of the same conservation property, for master plus the candidate close fix, is in [SEMAPHORE_PROOF.md](SEMAPHORE_PROOF.md).
+
 Why this component
 - the batch semaphore underlies Tokio's `Semaphore`, `Mutex`, `RwLock` and bounded `mpsc` (`Sender::reserve`/`send`)
 - documented claim, `tokio/src/sync/semaphore.rs:586`: "Cancelling a call to `acquire` makes you lose your place in the queue." This implies that cancelling returns any permits already assigned
