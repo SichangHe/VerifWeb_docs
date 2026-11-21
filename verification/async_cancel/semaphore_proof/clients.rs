@@ -25,19 +25,41 @@ pub open spec fn holds(t: ll::Sem::fl, sem: &ll::Semaphore, n: nat) -> bool {
     &&& t.value() == n
 }
 
-/// The end-to-end step for bounded `mpsc` (and any client): in a reachable state where no
-/// future is owed permits, every keyed token (locals, client objects, messages) is at 0,
-/// and no `held` permits are outstanding, the counter equals the total.
-/// For a channel, total = bound (its budget token is dropped at creation and it never
-/// calls `forget_permits` or `forget_held`), so `is_idle()` returns true.
-pub proof fn lemma_drained_counter_is_total(s: ll::Sem::State)
+/// A finite map whose values are all 0 sums to 0.
+pub proof fn lemma_msum_zero<K>(m: Map<K, nat>)
+    requires m.dom().finite(), forall|k: K| m.dom().contains(k) ==> m[k] == 0,
+    ensures ll::msum(m) == 0,
+    decreases m.dom().len(),
+{
+    if m.dom().len() > 0 {
+        let k = m.dom().choose();
+        ll::lemma_msum_remove(m, k);
+        lemma_msum_zero(m.remove(k));
+    }
+}
+
+/// The Verus-checked step of the bounded-`mpsc` corollary, over the ledger state `s` of a
+/// channel's semaphore (`bounded::Semaphore::wf`: `fixed`, `initial == bound`). Premises,
+/// one per kind of token: the channel's list token (key `list_key`, `ListTx::key`; its
+/// value is the number of messages in the list, `ListPred`) is 0; every other keyed token
+/// (`Permit`s, running calls' locals) is 0; no queued future is owed permits; no `held`
+/// permits are outstanding. Conclusion: the counter, which `is_idle` compares, equals `bound`.
+pub proof fn lemma_channel_drained_is_idle(s: ll::Sem::State, list_key: nat, bound: nat)
     requires
         s.invariant(),
-        ll::msum(ll::cmap(s.own, s.ws)) == 0,
-        ll::msum(s.fl) == 0,
+        s.fixed, s.initial == bound,
+        s.fl.dom().contains(ll::Key::O(list_key)), s.fl[ll::Key::O(list_key)] == 0,
+        forall|k: ll::Key| #[trigger] s.fl.dom().contains(k) && k != ll::Key::O(list_key) ==> s.fl[k] == 0,
+        forall|id: nat| #[trigger] s.own.dom().contains(id) ==> ll::contrib(s.own[id], s.ws[id]) == 0,
         s.held == 0,
-    ensures s.counter.permits == s.total,
+    ensures s.counter.permits == bound,
 {
+    ll::lemma_cmap_finite(s.own, s.ws);
+    assert forall|k: ll::Key| s.fl.dom().contains(k) implies s.fl[k] == 0 by {
+        if k == ll::Key::O(list_key) {} else {}
+    }
+    lemma_msum_zero(s.fl);
+    lemma_msum_zero(ll::cmap(s.own, s.ws));
 }
 
 /// Ghost-only (no runtime code): a fresh keyed token holding the permits of `h`.
@@ -134,7 +156,7 @@ pub struct OwnedSemaphorePermit {
 
 impl Semaphore {
     pub open spec fn wf(&self) -> bool {
-        self.ll_sem.wf() && self.ll_sem.inst@.closable()
+        self.ll_sem.wf() && self.ll_sem.inst@.closable() && !self.ll_sem.inst@.fixed()
     }
 }
 
@@ -175,7 +197,7 @@ impl Semaphore {
         requires permits <= ll::MAXP(),
         ensures r.0.wf(), r.1@.instance_id() == r.0.ll_sem.inst@.id(),
     {
-        let (ll_sem, budget) = ll::Semaphore::new(permits, Ghost(true)); // VERUS: `let ll_sem = ll::Semaphore::new(permits);` also returns the ghost budget; `close` may be called
+        let (ll_sem, budget) = ll::Semaphore::new(permits, Ghost(true), Ghost(false)); // VERUS: `let ll_sem = ll::Semaphore::new(permits);` also returns the ghost budget; `close` may be called
         (Self { // VERUS: `Self {` returned with the ghost budget token alongside
             ll_sem,
         }, budget) // VERUS: (see above)
@@ -457,7 +479,7 @@ pub fn arc_ptr_eq(a: &Arc<Semaphore>, b: &Arc<Semaphore>) -> (r: bool)
 
 /// Ghost: `forget` takes the permits out of circulation (the semaphore's total drops by `k`).
 pub proof fn forget_permits_ghost(tracked inst: &ll::Sem::Instance, tracked t: &mut ll::Sem::fl, k: nat)
-    requires old(t).instance_id() == inst.id(), old(t).key() is O, old(t).value() == k,
+    requires old(t).instance_id() == inst.id(), old(t).key() is O, old(t).value() == k, !inst.fixed(),
     ensures t.instance_id() == inst.id(), t.key() == old(t).key(), t.value() == 0,
 {
     let tracked f = ll::take_fl(t);
@@ -549,7 +571,7 @@ impl Mutex {
     pub fn new() -> (r: Self)
         ensures r.wf(),
     {
-        let (s, _budget) = semaphore::Semaphore::new(1, Ghost(false)); // VERUS: `let s = semaphore::Semaphore::new(1);`; the semaphore is created with `close` disabled; the ghost budget is dropped (Mutex never adds permits)
+        let (s, _budget) = semaphore::Semaphore::new(1, Ghost(false), Ghost(false)); // VERUS: `let s = semaphore::Semaphore::new(1);`; the semaphore is created with `close` disabled; the ghost budget is dropped (Mutex never adds permits)
 
         Self {
             s,
@@ -834,7 +856,7 @@ impl RwLock {
         ensures r.wf(),
     {
         proof { assert(u32::MAX >> 3u32 == 0x1fff_ffffu32) by (bit_vector); }
-        let (s, _budget) = Semaphore::new(MAX_READS as usize, Ghost(false)); // VERUS: `let s = Semaphore::new(MAX_READS as usize);`; `close` disabled; ghost budget dropped
+        let (s, _budget) = Semaphore::new(MAX_READS as usize, Ghost(false), Ghost(false)); // VERUS: `let s = Semaphore::new(MAX_READS as usize);`; `close` disabled; ghost budget dropped
 
         RwLock {
             mr: MAX_READS,
@@ -847,7 +869,7 @@ impl RwLock {
     {
         check(max_reads != 0); // VERUS: `assert_ne!(max_reads, 0, "a RwLock may not be created with 0 readers");` via trusted `check`
         check(max_reads <= MAX_READS); // VERUS: `assert!(max_reads <= MAX_READS, "..")` via trusted `check`
-        let (s, _budget) = Semaphore::new(max_reads as usize, Ghost(false)); // VERUS: `let s = Semaphore::new(max_reads as usize);`; `close` disabled; ghost budget dropped
+        let (s, _budget) = Semaphore::new(max_reads as usize, Ghost(false), Ghost(false)); // VERUS: `let s = Semaphore::new(max_reads as usize);`; `close` disabled; ghost budget dropped
         RwLock {
             mr: max_reads,
             s,
@@ -1098,6 +1120,7 @@ impl OwnedRwLockWriteGuard {
 // ======================================================================
 pub mod mpsc {
 use std::sync::Arc;
+use vstd::invariant::*;
 use std::task::{Context, Poll};
 use std::task::Poll::{Pending, Ready};
 use vstd::prelude::*;
@@ -1108,57 +1131,168 @@ use crate::common::*;
 verus! {
 
 // ----------------------------------------------------------------------
-// Trusted stand-ins: the lock-free block list (`list::Tx`/`list::Rx`),
-// `AtomicWaker` and `Notify`. Each message in the list carries one permit:
-// `push` moves one permit from the caller's local token into the message and
-// `pop` of a value moves it into the receiver's local token. Each pushed
-// message is popped at most once. Wakers and `Notify` do not touch permits.
+// The lock-free block list (`list::Tx`/`list::Rx`). Trusted: only `RawTx`/`RawRx`,
+// whose spec is about the list alone: a ghost `ListLen` counts the values in the
+// list; `push` adds 1; a `pop` that returns a value needs the count >= 1 and
+// subtracts 1. Verified: `ListTx`/`ListRx`, which keep one keyed ledger token per
+// channel (the list token) in an atomic invariant with value = count, and move
+// exactly one permit per message through the `transfer` transition.
+// `AtomicWaker` and `Notify` are trusted not to touch permits.
 // ----------------------------------------------------------------------
 
+/// Ghost (no runtime data): the number of values in list `id()`. Trusted; no constructor.
 #[verifier::external_body]
-#[verifier::reject_recursive_types(T)]
-pub struct ListTx<T> { v: std::marker::PhantomData<T> }
+pub struct ListLen { v: () }
+
+impl ListLen {
+    pub uninterp spec fn id(&self) -> nat;
+    pub uninterp spec fn len(&self) -> nat;
+}
 
 #[verifier::external_body]
 #[verifier::reject_recursive_types(T)]
-pub struct ListRx<T> { v: std::marker::PhantomData<T> }
+pub struct RawTx<T> { v: std::marker::PhantomData<T> }
+
+#[verifier::external_body]
+#[verifier::reject_recursive_types(T)]
+pub struct RawRx<T> { v: std::marker::PhantomData<T> }
 
 pub enum Read<T> {
     Value(T),
     Closed,
 }
 
-impl<T> ListTx<T> {
-    /// The semaphore instance whose permits the messages carry.
-    pub uninterp spec fn inst(&self) -> InstanceId;
+impl<T> RawTx<T> {
+    pub uninterp spec fn id(&self) -> nat;
 
+    /// `list::Tx::push` (trusted, linearizable).
     #[verifier::external_body]
-    pub fn push(&self, value: T, Tracked(op): Tracked<&mut ll::Sem::fl>)
-        requires old(op).instance_id() == self.inst(), old(op).key() is O, old(op).value() >= 1,
-        ensures op.instance_id() == old(op).instance_id(), op.key() == old(op).key(), op.value() == old(op).value() - 1,
+    #[verifier::atomic]
+    pub fn push(&self, value: T, Tracked(len): Tracked<&mut ListLen>)
+        requires old(len).id() == self.id(),
+        ensures len.id() == old(len).id(), len.len() == old(len).len() + 1,
+        opens_invariants none
+        no_unwind
     {
         unimplemented!()
+    }
+}
+
+impl<T> RawRx<T> {
+    pub uninterp spec fn id(&self) -> nat;
+
+    /// `list::Rx::pop` (trusted, linearizable).
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn pop(&mut self, tx: &RawTx<T>, Tracked(len): Tracked<&mut ListLen>) -> (r: Option<Read<T>>)
+        requires old(self).id() == tx.id(), old(len).id() == tx.id(),
+        ensures
+            self.id() == old(self).id(), len.id() == old(len).id(),
+            r matches Some(Read::Value(_)) ==> old(len).len() >= 1 && len.len() == old(len).len() - 1,
+            !(r matches Some(Read::Value(_))) ==> len.len() == old(len).len(),
+        opens_invariants none
+        no_unwind
+    {
+        unimplemented!()
+    }
+}
+
+/// `list::channel()` (trusted): an empty list.
+#[verifier::external_body]
+pub fn raw_channel<T>() -> (r: (RawTx<T>, RawRx<T>, Tracked<ListLen>))
+    ensures r.1.id() == r.0.id(), r.2@.id() == r.0.id(), r.2@.len() == 0,
+{
+    unimplemented!()
+}
+
+pub open spec fn LIST_NS() -> int { 78 }
+
+/// The list invariant, keyed by (semaphore instance, list id, list token key):
+/// the list token holds exactly one permit per value in the list.
+pub struct ListPred;
+
+impl InvariantPredicate<(InstanceId, nat, nat), (ListLen, ll::Sem::fl)> for ListPred {
+    open spec fn inv(k: (InstanceId, nat, nat), v: (ListLen, ll::Sem::fl)) -> bool {
+        &&& v.0.id() == k.1
+        &&& v.1.instance_id() == k.0 && v.1.key() == ll::Key::O(k.2)
+        &&& v.1.value() == v.0.len()
+    }
+}
+
+#[verifier::reject_recursive_types(T)]
+pub struct ListTx<T> {
+    pub raw: RawTx<T>,
+    pub sem_inst: Tracked<ll::Sem::Instance>,
+    pub inv: Tracked<AtomicInvariant<(InstanceId, nat, nat), (ListLen, ll::Sem::fl), ListPred>>,
+}
+
+#[verifier::reject_recursive_types(T)]
+pub struct ListRx<T> {
+    pub raw: RawRx<T>,
+}
+
+impl<T> ListTx<T> {
+    /// The semaphore instance whose permits the messages carry.
+    pub open spec fn inst(&self) -> InstanceId { self.inv@.constant().0 }
+    /// The key of this channel's list token: `Key::O(key())`.
+    pub open spec fn key(&self) -> nat { self.inv@.constant().2 }
+
+    pub open spec fn wf(&self) -> bool {
+        &&& self.inv@.namespace() == LIST_NS()
+        &&& self.inv@.constant().1 == self.raw.id()
+        &&& self.sem_inst@.id() == self.inst()
+    }
+
+    /// Move one permit from `op` into the list token, with the message.
+    pub fn push(&self, value: T, Tracked(op): Tracked<&mut ll::Sem::fl>)
+        requires self.wf(), old(op).instance_id() == self.inst(), old(op).key() is O, old(op).value() >= 1,
+        ensures op.instance_id() == old(op).instance_id(), op.key() == old(op).key(), op.value() == old(op).value() - 1,
+    {
+        open_atomic_invariant!(self.inv.borrow() => g => {
+            let tracked (mut len, mut tok) = g;
+            self.raw.push(value, Tracked(&mut len));
+            proof {
+                move_permits(self.sem_inst.borrow(), op, &mut tok, 1);
+                g = (len, tok);
+            }
+        });
     }
 }
 
 impl<T> ListRx<T> {
-    #[verifier::external_body]
+    /// Pop a message; a value's permit moves from the list token into `op`.
     pub fn pop(&mut self, tx: &ListTx<T>, Tracked(op): Tracked<&mut ll::Sem::fl>) -> (r: Option<Read<T>>)
-        requires old(op).instance_id() == tx.inst(), old(op).key() is O,
+        requires tx.wf(), old(self).raw.id() == tx.raw.id(), old(op).instance_id() == tx.inst(), old(op).key() is O,
         ensures
+            self.raw.id() == old(self).raw.id(),
             op.instance_id() == old(op).instance_id(), op.key() == old(op).key(),
             op.value() == old(op).value() + if r matches Some(Read::Value(_)) { 1nat } else { 0nat },
     {
-        unimplemented!()
+        let r;
+        open_atomic_invariant!(tx.inv.borrow() => g => {
+            let tracked (mut len, mut tok) = g;
+            r = self.raw.pop(&tx.raw, Tracked(&mut len));
+            proof {
+                if r matches Some(Read::Value(_)) {
+                    move_permits(tx.sem_inst.borrow(), &mut tok, op, 1);
+                }
+                g = (len, tok);
+            }
+        });
+        r
     }
 }
 
-/// `list::channel()` (trusted): an empty list whose messages carry permits of `inst`.
-#[verifier::external_body]
-pub fn list_channel<T>(Ghost(inst): Ghost<InstanceId>) -> (r: (ListTx<T>, ListRx<T>))
-    ensures r.0.inst() == inst,
+/// `list::channel()`: an empty list and a fresh list token (value 0) on `sem`.
+pub fn list_channel<T>(sem: &ll::Semaphore) -> (r: (ListTx<T>, ListRx<T>))
+    requires sem.wf(),
+    ensures r.0.wf(), r.0.inst() == sem.inst@.id(), r.1.raw.id() == r.0.raw.id(),
 {
-    unimplemented!()
+    let (raw_tx, raw_rx, Tracked(len)) = raw_channel();
+    let Tracked(tok) = sem.new_op();
+    let tracked inv = AtomicInvariant::new((sem.inst@.id(), raw_tx.id(), tok.key()->O_0), (len, tok), LIST_NS());
+    let tracked si = sem.inst.borrow().clone();
+    (ListTx { raw: raw_tx, sem_inst: Tracked(si), inv: Tracked(inv) }, ListRx { raw: raw_rx })
 }
 
 #[verifier::external_body]
@@ -1215,6 +1349,7 @@ verus! {
 impl Semaphore {
     pub open spec fn wf(&self) -> bool {
         &&& self.semaphore.wf() && self.semaphore.inst@.closable()
+        &&& self.semaphore.inst@.fixed() && self.semaphore.inst@.initial() == self.bound // total = bound
         &&& 1 <= self.bound <= ll::MAXP()
     }
 
@@ -1279,7 +1414,7 @@ pub struct Rx<T> {
 
 impl<T> Chan<T> {
     pub open spec fn wf(&self) -> bool {
-        self.semaphore.wf() && self.tx.inst() == self.semaphore.id()
+        self.semaphore.wf() && self.tx.wf() && self.tx.inst() == self.semaphore.id()
     }
 }
 
@@ -1288,14 +1423,14 @@ impl<T> Tx<T> {
 }
 
 impl<T> Rx<T> {
-    pub open spec fn wf(&self) -> bool { self.inner.wf() }
+    pub open spec fn wf(&self) -> bool { self.inner.wf() && self.rx_fields.list.raw.id() == self.inner.tx.raw.id() }
 }
 
 pub fn channel<T>(semaphore: Semaphore) -> (r: (Tx<T>, Rx<T>))
     requires semaphore.wf(),
     ensures r.0.wf(), r.1.wf(), r.0.inner == r.1.inner, !r.1.rx_fields.rx_closed, r.0.inner.semaphore == semaphore,
 {
-    let (tx, rx) = list_channel(Ghost(semaphore.id())); // VERUS: `list::channel()` (trusted), told which semaphore's permits its messages carry
+    let (tx, rx) = list_channel(&semaphore.semaphore); // VERUS: `list::channel()`, plus the channel's list token on `semaphore`
     // VERUS: `channel_from_list(tx, rx, semaphore)` inlined
     let chan = Arc::new(Chan {
         notify_rx_closed: Notify::new(),
@@ -1535,7 +1670,7 @@ pub fn channel<T>(buffer: usize) -> (r: (Sender<T>, Receiver<T>))
     ensures r.0.wf(), r.1.wf(), r.0.chan.inner == r.1.chan.inner, !r.1.chan.rx_fields.rx_closed, r.0.chan.inner.semaphore.bound == buffer,
 {
     check(buffer > 0); // VERUS: `assert!(buffer > 0, "mpsc bounded channel requires buffer > 0");` via trusted `check`
-    let (sem, _budget) = semaphore::Semaphore::new(buffer, Ghost(true)); // VERUS: `semaphore::Semaphore::new(buffer)` bound first; `close` allowed; the ghost budget is dropped, so no permits can ever be added
+    let (sem, _budget) = semaphore::Semaphore::new(buffer, Ghost(true), Ghost(true)); // VERUS: `semaphore::Semaphore::new(buffer)` bound first; `close` allowed; `fixed`: total stays `buffer`
     let semaphore = Semaphore {
         semaphore: sem, // VERUS: `semaphore: semaphore::Semaphore::new(buffer),` (bound above)
         bound: buffer,

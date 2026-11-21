@@ -3,27 +3,28 @@
 
 Result, 2026-11-20 UTC: a Verus proof that Tokio's batch semaphore conserves permits under cancellation and `close`, for any number of futures, permits and threads, and any interleaving. It covers master `fc0d151` plus the candidate fix [real_tokio/semaphore-close-fix.patch](real_tokio/semaphore-close-fix.patch). Verus reports `verification results:: 94 verified, 0 errors` (88 before the ghost-only additions made for the clients; see below). Master without the fix fails the proof. So do four other known-bad variants, each for its expected reason.
 
-Follow-up, 2026-11-20: Tokio's clients of this semaphore (`Semaphore` and its permits, `Mutex`, `RwLock`, bounded `mpsc`) are proved, by the same method, to return exactly the permits they hold on drop, cancellation and close: [CLIENTS_PROOF.md](CLIENTS_PROOF.md). That discharges most of obligation 6 below.
+Follow-up, 2026-11-20: for a hand-adapted copy of Tokio's clients of this semaphore (`Semaphore` and its permits, `Mutex`, `RwLock`, bounded `mpsc`; 166 of 340 real lines kept verbatim, each `async fn` rewritten by hand as a future and checked only by reading), Verus checks that the covered functions return exactly the permits they hold on drop, cancellation and close: [CLIENTS_PROOF.md](CLIENTS_PROOF.md). The `Arc`-owning futures (`acquire_owned`, `lock_owned`, `read_owned`/`write_owned`, `reserve_owned`) and the mapped guards are not covered. This closes part of obligation 6 below.
 
 What was verified: a hand-adapted Verus copy of the real `batch_semaphore.rs`, not a separate model. Of the 215 statement lines of the 12 covered real functions, 116 are kept verbatim and in order. The rest are rewritten in the categories listed under "How the proof is tied to the real code", including `Pin`/`NonNull` and the intrusive list replaced by `Arc` plus a trusted-spec list, and `Drop` made a plain method. The copy keeps the real atomic operations; every line it adds carries a `// VERUS:` marker or falls in a listed category (checked by `correspond.py`). The linked list, wakers, coop budget and std types have trusted specifications. The mutex is vstd's verified `RwLock`. The proof is in [semaphore_proof/batch_semaphore.rs](semaphore_proof/batch_semaphore.rs).
 
 ## Theorem
 
 Definitions
-- `S`: a semaphore created by `Semaphore::new(n)`
+- `S`: a semaphore created by `Semaphore::new(n)`, with two ghost constants chosen at creation: `closable` (whether `close` may be called) and `fixed` (whether the total may change)
 - available: `S.permits >> 1`, the counter word without the `CLOSED` bit
 - queued future: a live `Acquire` future `f` whose `f.queued` flag is set. Its owed permits are `f.num_permits − f.node.state`: the permits already assigned to it
 - local permits: the value of a running call's local variable that holds permits taken from the counter or a waiter. These are `acquired` in `poll_acquire` and `rem` in `add_permits_locked`
 - held: permits handed to callers. These are an `Acquire` that returned `Ready(Ok)` and a successful `try_acquire`, and they are not yet `release`d
-- total: `n` + permits added by `release` as new permits − permits removed by `forget_permits` or by a permit's `forget` (ghost transition `forget_held`, added for the clients)
+- total: `n` + permits added by `release` as new permits − permits removed by `forget_permits` or by a permit's `forget` (ghost transition `forget_held`, added for the clients). If `fixed`, total = `n` always (invariant `inv_fixed`)
 
-Statement (P1, conservation). The following holds in every reachable state of every execution. It holds for any number of threads and `Acquire` futures, with `poll`, `drop`, `release`, `close`, `try_acquire` and `forget_permits` interleaved in any order at atomic-operation granularity:
+Statement (P1, conservation). The following holds in every reachable state of every execution. It holds for any number of threads and `Acquire` futures, with `poll`, `drop`, `release`, `close`, `try_acquire` and `forget_permits` interleaved in any order at atomic-operation granularity, subject to their preconditions: `close` requires `closable`; `release` of new permits and `forget_permits` require `!fixed`:
 
   available + Σ over queued futures of owed + Σ over running calls of local + held = total
 
 Every call also returns with its local permits at 0. A call cannot leave permits in a local that dies with it.
 
 Also proved
+- if `!closable`, the semaphore is never closed, so `poll_acquire`, `Acquire::poll` and `try_acquire` never return a closed error
 - a future that completed (`Ready(Ok)` handed its permits to the caller) or that was dropped is never in the wait list. This is the property the intrusive list needs to avoid dangling pointers. Memory safety itself is not proved
 - every `assert!`/`assert_eq!` in the covered functions holds. That includes `prev + permits <= MAX_PERMITS` in `add_permits_locked`, so the "would overflow" panic cannot fire when new permits come only from the budget (below)
 - drop of a future that is not queued touches nothing; drop of a queued future returns exactly its owed permits
@@ -33,6 +34,7 @@ Client obligations (preconditions; the theorem is about clients that meet them)
 - a future is not polled after it returned `Ready(Ok)`. The `Future` contract leaves that unspecified
 - `release(k)` takes a ghost token for `k` held permits, or `k` units of a budget for new permits. The budget is created by `new` as `MAX_PERMITS − n`. So callers never release permits they do not have, and never exceed `MAX_PERMITS`
 - Rust runs `Acquire::drop` once when the future is dropped (see trusted assumptions)
+- `close` only on a `closable` semaphore; new permits and `forget_permits` only on a non-`fixed` one
 - `held` and `budget` are ghost tokens, so these obligations are not enforced on real Rust callers. In particular, overflow freedom of `release` relies on clients staying within the budget
 - discharged for Tokio's own clients, as far as covered, in [CLIENTS_PROOF.md](CLIENTS_PROOF.md): each client object keeps its permits in a keyed ledger token and releases exactly that token (`Source::Stashed`)
 
@@ -47,7 +49,8 @@ How the proof is organised
   - `inv_ledger` is P1
   - `inv_closed`: if the list is open and non-empty, the counter is 0
   - `inv_queue`: every linked waiter is registered, has `state > 0`, and has no local permits while open
-  - Verus checks that the initial state satisfies them and that all 22 transitions preserve them (20 before 2026-11-20; `transfer` and `forget_held` were added for the clients, together with the constant `closable`, which `close` requires)
+  - `inv_fixed`: if `fixed`, total = initial
+  - Verus checks that the initial state satisfies them and that all 22 transitions preserve them (20 before 2026-11-20; `transfer` and `forget_held` were added for the clients, together with the constants `closable`, which `close` requires, and `fixed`/`initial`, where `fixed` forbids `mint`, `forget` and `forget_held`)
 - each atomic's ghost invariant ties the real value to its token
   - the counter word: `v == 2·permits + closed`
   - each waiter: `state == ws.state`
@@ -136,7 +139,7 @@ Not mechanically checked: that the trusted stand-ins behave as specified, that e
 
 - unwinding: the #8542 tracing-panic path is not compiled; panics in wakers and in a tracing subscriber
 - liveness: a waiter is eventually woken; `close` terminates; CAS loops terminate (loops carry no `decreases`)
-- the other `Semaphore` entry points (`acquire_many`, `Semaphore::add_permits` wrappers in `semaphore.rs`, `SemaphorePermit`'s `Drop`), `Mutex`, `RwLock` and `mpsc` on top. Their correct use of `release` is a client obligation here; most of it is now proved in [CLIENTS_PROOF.md](CLIENTS_PROOF.md)
+- the other `Semaphore` entry points (`acquire_many`, `Semaphore::add_permits` wrappers in `semaphore.rs`, `SemaphorePermit`'s `Drop`), `Mutex`, `RwLock` and `mpsc` on top. Their correct use of `release` is a client obligation here; for the functions covered there, it is checked in [CLIENTS_PROOF.md](CLIENTS_PROOF.md)
 - polling a future after `Ready(Ok)`
 
 ## Relation to prior and our own work
@@ -177,7 +180,7 @@ Not mechanically checked: that the trusted stand-ins behave as specified, that e
 4. `Drop`: get Verus to verify `impl Drop for Acquire` with the type invariant, or prove that Rust calls it once. Today Verus requires `Drop` to have no precondition and `opens_invariants none` ([REPORT.md](REPORT.md))
 5. Unwinding: the tracing-panic paths (#8541, #8542) need an unwind-aware semantics; Verus has none for exec code
 6. Clients: prove that `SemaphorePermit::drop`, `Mutex`, `RwLock` and bounded `mpsc` call `release` with exactly the held permits. This is the step to "Tokio's sync primitives conserve permits under cancellation". It also covers the bounded-`mpsc` `recv` hang ([TOKIO_SEMAPHORE.md](TOKIO_SEMAPHORE.md))
-   - mostly done 2026-11-20, [CLIENTS_PROOF.md](CLIENTS_PROOF.md). Remaining: the `Arc`-owning futures (self-referential coroutines, not expressible as Verus structs), the types listed there as not attempted, and the paper composition step of the `mpsc` corollary
+   - partly done 2026-11-20, [CLIENTS_PROOF.md](CLIENTS_PROOF.md), for a hand-adapted copy (166 of 340 real lines kept; `async fn`s rewritten by hand). Remaining: the `Arc`-owning futures (self-referential coroutines, not expressible as Verus structs), the mapped guards and other types listed there as not attempted, a check of the `async` rewrite, and the paper step of the `mpsc` corollary
 7. Liveness (waiters are eventually woken), in the style of Lion or Li et al.
 
 ## Must not claim

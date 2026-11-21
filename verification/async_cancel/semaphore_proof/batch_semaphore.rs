@@ -130,6 +130,10 @@ tokenized_state_machine!{
             #[sharding(not_tokenized)] pub total: nat,
             // whether `close` may ever be called (false for Mutex and RwLock, which never close)
             #[sharding(constant)] pub closable: bool,
+            // whether `total` never changes (no `mint`, `forget`, `forget_held`; true for bounded mpsc)
+            #[sharding(constant)] pub fixed: bool,
+            // the `n` of `initialize`
+            #[sharding(constant)] pub initial: nat,
         }
 
         pub open spec fn ledger(&self) -> nat {
@@ -178,6 +182,12 @@ tokenized_state_machine!{
             &&& (!self.closable ==> !self.counter.closed)
         }
 
+        /// A fixed instance keeps its initial total.
+        #[invariant]
+        pub fn inv_fixed(&self) -> bool {
+            self.fixed ==> self.total == self.initial
+        }
+
         #[invariant]
         pub fn inv_queue(&self) -> bool {
             &&& self.lk.queue.no_duplicates()
@@ -192,7 +202,7 @@ tokenized_state_machine!{
         }
 
         init!{
-            initialize(n: nat, closable: bool) {
+            initialize(n: nat, closable: bool, fixed: bool) {
                 require(n <= MAXP());
                 init counter = CounterG { permits: n, closed: false };
                 init lk = LockG { queue: Seq::empty(), reg: Set::empty(), closed: false, blocked: false, popping: false };
@@ -205,6 +215,8 @@ tokenized_state_machine!{
                 init next_id = 0;
                 init total = n;
                 init closable = closable;
+                init fixed = fixed;
+                init initial = n;
             }
         }
 
@@ -386,6 +398,7 @@ tokenized_state_machine!{
 
         transition!{
             forget(k: nat) {
+                require(!pre.fixed);
                 require(k <= pre.counter.permits);
                 update counter = CounterG { permits: (pre.counter.permits - k) as nat, ..pre.counter };
                 update total = (pre.total - k) as nat;
@@ -422,7 +435,7 @@ tokenized_state_machine!{
         // SemaphorePermit::forget: the permits leave circulation for good
         transition!{
             forget_held(op: Key, k: nat) {
-                require(op is O);
+                require(op is O && !pre.fixed);
                 remove fl -= [op => let a];
                 require(k <= a);
                 add fl += [op => (a - k) as nat];
@@ -433,6 +446,7 @@ tokenized_state_machine!{
         // release(k) of brand-new permits (Semaphore::add_permits)
         transition!{
             mint(op: nat, k: nat) {
+                require(!pre.fixed);
                 remove budget -= (k);
                 remove fl -= [Key::O(op) => let a];
                 add fl += [Key::O(op) => a + k];
@@ -517,7 +531,7 @@ tokenized_state_machine!{
         }
 
         #[inductive(initialize)]
-        fn initialize_inductive(post: Self, n: nat, closable: bool) {
+        fn initialize_inductive(post: Self, n: nat, closable: bool, fixed: bool) {
             assert(cmap(post.own, post.ws) =~= Map::empty());
             assert(msum(Map::<nat, nat>::empty()) == 0);
             assert(msum(Map::<Key, nat>::empty()) == 0);
@@ -1229,15 +1243,15 @@ impl Semaphore {
     pub const CLOSED: usize = 1;
     pub const PERMIT_SHIFT: usize = 1;
 
-    pub fn new(permits: usize, Ghost(closable): Ghost<bool>) -> (r: (Self, Tracked<Sem::budget>))
+    pub fn new(permits: usize, Ghost(closable): Ghost<bool>, Ghost(fixed): Ghost<bool>) -> (r: (Self, Tracked<Sem::budget>))
         requires permits <= MAXP(),
         ensures r.0.wf(), r.1@.instance_id() == r.0.inst@.id(), r.1@.count() == MAXP() - permits,
-            r.0.inst@.closable() == closable,
+            r.0.inst@.closable() == closable, r.0.inst@.fixed() == fixed, r.0.inst@.initial() == permits,
     {
         proof { lemma_max(); }
         runtime_assert(permits <= Self::MAX_PERMITS);
         let tracked (Tracked(inst), Tracked(counter), Tracked(lk), Tracked(_ws), Tracked(_own), Tracked(_nums),
-            Tracked(_fl), Tracked(_held), Tracked(budget), Tracked(next_id)) = Sem::Instance::initialize(permits as nat, closable);
+            Tracked(_fl), Tracked(_held), Tracked(budget), Tracked(next_id)) = Sem::Instance::initialize(permits as nat, closable, fixed);
         proof { lemma_shl1(permits); }
         let w = Waitlist { queue: LinkedList::new(), closed: false }; // VERUS: `Mutex::new(Waitlist {..})` built in steps: the Waitlist, then a vstd RwLock holding it with the ghost token
         let ghost pred = LockPred { inst_id: inst.id() };
@@ -1279,7 +1293,7 @@ impl Semaphore {
             old(op).instance_id() == self.inst@.id(), old(op).key() is O,
             match src {
                 Source::Held(h) => h.instance_id() == self.inst@.id() && h.count() == added && old(op).value() == 0,
-                Source::Mint(b) => b.instance_id() == self.inst@.id() && b.count() == added && old(op).value() == 0,
+                Source::Mint(b) => b.instance_id() == self.inst@.id() && b.count() == added && old(op).value() == 0 && !self.inst@.fixed(),
                 Source::Stashed => old(op).value() == added,
             },
         ensures
@@ -1534,7 +1548,7 @@ impl Semaphore {
 
     #[verifier::loop_isolation(false)]
     pub fn forget_permits(&self, n: usize) -> (r: usize)
-        requires self.wf(),
+        requires self.wf(), !self.inst@.fixed(),
         ensures r <= n,
     {
         if n == 0 {

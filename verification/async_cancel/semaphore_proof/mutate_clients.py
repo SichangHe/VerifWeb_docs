@@ -1,7 +1,7 @@
 """Apply one known-bad change to clients.rs (or batch_semaphore.rs) and check that Verus rejects it for the expected reason.
 
 As in mutate.py: a mutation passes only if every Verus error is of the expected
-kind (postcondition/precondition), in the expected file and function, at the
+kind (postcondition/precondition/invariant at the end of an `open_atomic_invariant!` block), in the expected file and function, at the
 expected clause (the text at the column Verus reports), and at least one error
 is at the required clause.
 Usage: python3 mutate_clients.py VERUS   (exit 0 iff the original verifies and every mutation fails as expected)
@@ -36,6 +36,9 @@ WG_DROP = "    /// `impl Drop for RwLockWriteGuard<'a, T>`."
 SP_FORGET = "impl<'a> SemaphorePermit<'a> {\n    pub fn forget(self)"
 SP_MERGE = "    pub fn merge(&mut self, other: Self)"  # first: SemaphorePermit
 SP_SPLIT_HDR = "    pub fn split(&mut self, n: usize)"  # first: SemaphorePermit
+RAW_POP = "    pub fn pop(&mut self, tx: &RawTx<T>, Tracked(len)"
+RAW_POP_VALUE = "r matches Some(Read::Value(_)) ==> old(len).len() >= 1 && len.len() == old(len).len() - 1,"
+RAW_CHANNEL = "pub fn raw_channel<T>()"
 
 def master_no_close_fix(s):
     i = s.index("            if acquired > 0 {\n                let tracked mut tf = take_fl(fl);")
@@ -70,6 +73,14 @@ MUTATIONS = {
     # SemaphorePermit::split without subtracting: both permits own the split-off permits
     "semaphore_split_no_subtract": ("clients.rs", in_fn(SP_SPLIT_HDR,
         "        self.permits = self.permits - n; // VERUS: `self.permits -= n;` (Verus has no compound assignment to a field)\n", "")),
+    # mpsc list: a popped value stays in the list (count not decremented), so it can be popped again (double pop)
+    "mpsc_list_double_pop": ("clients.rs", in_fn(RAW_POP, RAW_POP_VALUE,
+        "r matches Some(Read::Value(_)) ==> old(len).len() >= 1 && len.len() == old(len).len(),")),
+    # mpsc list: pop may return a value from an empty list (a pop with no push)
+    "mpsc_list_pop_without_push": ("clients.rs", in_fn(RAW_POP, RAW_POP_VALUE,
+        "r matches Some(Read::Value(_)) ==> (old(len).len() == 0 && len.len() == 0) || (old(len).len() >= 1 && len.len() == old(len).len() - 1),")),
+    # mpsc list: a new list already holds a value that no one pushed
+    "mpsc_list_starts_nonempty": ("clients.rs", in_fn(RAW_CHANNEL, "r.2@.len() == 0,", "r.2@.len() == 1,")),
 }
 
 # name -> (kind, file, function, required clause, other clauses allowed in the same function)
@@ -84,6 +95,9 @@ EXPECTED = {
     "semaphore_forget_keeps_count": ("precondition", "clients.rs", "forget", "this.drop()", []),
     "semaphore_merge_no_zero_other": ("precondition", "clients.rs", "merge", "other.drop()", []),
     "semaphore_split_no_subtract": ("postcondition", "clients.rs", "split", "self.wf()", ["Some(p) ==> p.wf()"]),
+    "mpsc_list_double_pop": ("invariant", "clients.rs", "pop", "open_atomic_invariant!(tx.inv.borrow()", []),
+    "mpsc_list_pop_without_push": ("precondition", "clients.rs", "pop", "move_permits(tx.sem_inst.borrow(), &mut tok, op, 1)", []),
+    "mpsc_list_starts_nonempty": ("precondition", "clients.rs", "list_channel", "AtomicInvariant::new(", []),
 }
 
 def verify(texts, verus):
@@ -97,12 +111,12 @@ def verify(texts, verus):
     m = re.search(r"verification results:: (\d+) verified, (\d+) errors", out)
     res = m.group(0) if m else (out.strip().splitlines()[-1] if out.strip() else "no output")
     errs = []
-    for em in re.finditer(r"^error: (\w+) not satisfied\n\s*--> ([\w.]+):(\d+):(\d+)", out, re.M):
-        f, ln, col = em.group(2), int(em.group(3)), int(em.group(4))
+    for em in re.finditer(r"^error: (?:(\w+) not satisfied|Cannot show (invariant) holds at end of block)\n\s*--> ([\w.]+):(\d+):(\d+)", out, re.M):
+        f, ln, col = em.group(3), int(em.group(4)), int(em.group(5))
         lines = texts[f].splitlines()
         fn = next((fm.group(1) for k in range(ln - 1, -1, -1)
                    if (fm := re.search(r"\bfn (\w+)", lines[k]))), "?")
-        errs.append((em.group(1), f, fn, lines[ln - 1][col - 1:]))
+        errs.append((em.group(1) or em.group(2), f, fn, lines[ln - 1][col - 1:]))
     other = len(re.findall(r"^error", out, re.M)) - len(errs) - len(re.findall(r"^error: aborting", out, re.M))
     if other:
         errs.append(("other", "?", "?", "unparsed error"))
