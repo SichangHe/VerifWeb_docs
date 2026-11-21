@@ -1,9 +1,9 @@
 # Tokio batch semaphore: unbounded Verus proof of permit conservation
 (authored by agents unless marked 🧑)
 
-Result, 2026-11-20 UTC: a Verus proof that Tokio's batch semaphore conserves permits under cancellation and `close`, for any number of futures, permits and threads, and any interleaving. It covers master `fc0d151` plus the candidate fix [real_tokio/semaphore-close-fix.patch](real_tokio/semaphore-close-fix.patch). Verus reports `verification results:: 88 verified, 0 errors`. Master without the fix fails the proof. So do four other known-bad variants.
+Result, 2026-11-20 UTC: a Verus proof that Tokio's batch semaphore conserves permits under cancellation and `close`, for any number of futures, permits and threads, and any interleaving. It covers master `fc0d151` plus the candidate fix [real_tokio/semaphore-close-fix.patch](real_tokio/semaphore-close-fix.patch). Verus reports `verification results:: 88 verified, 0 errors`. Master without the fix fails the proof. So do four other known-bad variants, each for its expected reason.
 
-What was verified: a minimally changed copy of the real `batch_semaphore.rs`, not a separate model. It keeps the real control flow, arithmetic and atomic operations. The linked list, wakers, coop budget and std types have trusted specifications. The mutex is vstd's verified `RwLock`. The proof is in [semaphore_proof/batch_semaphore.rs](semaphore_proof/batch_semaphore.rs).
+What was verified: a hand-adapted Verus copy of the real `batch_semaphore.rs`, not a separate model. Of the 215 statement lines of the 12 covered real functions, 116 are kept verbatim and in order. The rest are rewritten in the categories listed under "How the proof is tied to the real code", including `Pin`/`NonNull` and the intrusive list replaced by `Arc` plus a trusted-spec list, and `Drop` made a plain method. The copy keeps the real atomic operations; every line it adds carries a `// VERUS:` marker or falls in a listed category (checked by `correspond.py`). The linked list, wakers, coop budget and std types have trusted specifications. The mutex is vstd's verified `RwLock`. The proof is in [semaphore_proof/batch_semaphore.rs](semaphore_proof/batch_semaphore.rs).
 
 ## Theorem
 
@@ -25,11 +25,13 @@ Also proved
 - a future that completed (`Ready(Ok)` handed its permits to the caller) or that was dropped is never in the wait list. This is the property the intrusive list needs to avoid dangling pointers. Memory safety itself is not proved
 - every `assert!`/`assert_eq!` in the covered functions holds. That includes `prev + permits <= MAX_PERMITS` in `add_permits_locked`, so the "would overflow" panic cannot fire when new permits come only from the budget (below)
 - drop of a future that is not queued touches nothing; drop of a queued future returns exactly its owed permits
+- `forget_permits(n)` returns `r` with `r <= n` (an `ensures`). That `r` equals the amount removed from the ledger is proved by an `assert` inside the successful CAS's ghost step, not by an `ensures`: the ledger lives in shared ghost state, and the function has no per-call token through which a postcondition could name the removed amount
 
 Client obligations (preconditions; the theorem is about clients that meet them)
 - a future is not polled after it returned `Ready(Ok)`. The `Future` contract leaves that unspecified
 - `release(k)` takes a ghost token for `k` held permits, or `k` units of a budget for new permits. The budget is created by `new` as `MAX_PERMITS − n`. So callers never release permits they do not have, and never exceed `MAX_PERMITS`
 - Rust runs `Acquire::drop` once when the future is dropped (see trusted assumptions)
+- `held` and `budget` are ghost tokens, so these obligations are not enforced on real Rust callers. In particular, overflow freedom of `release` relies on clients staying within the budget
 
 How the proof is organised
 - a VerusSync tokenized state machine `Sem` ([batch_semaphore.rs](semaphore_proof/batch_semaphore.rs), first half) holds the ghost ledger. Its fields are:
@@ -52,19 +54,25 @@ How the proof is organised
 
 ## Checks that the proof is not vacuous
 
-[semaphore_proof/mutate.py](semaphore_proof/mutate.py) verifies the original, then five variants, each with one known bug. Run 2026-11-20 under `cpu-run LOW`, Verus `840fa612c` (2025-11-30 build):
+[semaphore_proof/mutate.py](semaphore_proof/mutate.py) verifies the original, then five variants, each with one known bug. "Master" (`master_no_close_fix`) means the Verus copy with the close-fix block removed; it is not the real master file. A variant counts as rejected only if every Verus error is of the expected kind, in the expected function, at the expected clause (the script reads the line and column Verus reports). Run 2026-11-20 under `cpu-run LOW`, Verus `840fa612c` (2025-11-30 build):
 
 ```
 original: exit 0: verification results:: 88 verified, 0 errors
-master_no_close_fix: exit 1: verification results:: 87 verified, 1 errors (rejected)
-pre8542_fast_path: exit 1: verification results:: 87 verified, 1 errors (rejected)
-drop_no_return: exit 1: verification results:: 87 verified, 1 errors (rejected)
-drop_no_remove: exit 1: verification results:: 87 verified, 1 errors (rejected)
-poll_clear_on_pending: exit 1: verification results:: 87 verified, 1 errors (rejected)
+master_no_close_fix: exit 1: verification results:: 87 verified, 1 errors (rejected as expected)
+    postcondition in poll_acquire: fl.value() == 0,
+pre8542_fast_path: exit 1: verification results:: 87 verified, 1 errors (rejected as expected)
+    postcondition in poll_acquire: fl.value() == 0,
+    postcondition in poll_acquire: Poll::Ready(Ok(_)) ==> own.value() == Own::Fast,
+drop_no_return: exit 1: verification results:: 87 verified, 1 errors (rejected as expected)
+    postcondition in drop: self.fl@.value() == 0,
+drop_no_remove: exit 1: verification results:: 87 verified, 1 errors (rejected as expected)
+    precondition in drop: self.semaphore.inst.borrow().retire(self.node.id@, &mut lk, &g, to, tf
+poll_clear_on_pending: exit 1: verification results:: 87 verified, 1 errors (rejected as expected)
+    postcondition in poll: self.wf(), self.id() == old(self).id(), self.semaphore == old(self).se
 ```
 
-Each failure is for the expected reason:
-- `master_no_close_fix` (real master `fc0d151`) and `pre8542_fast_path`: `poll_acquire` postcondition `fl.value() == 0`. The permits are still in the local when the call returns
+Expected reasons, as checked:
+- `master_no_close_fix` and `pre8542_fast_path`: `poll_acquire` postcondition `fl.value() == 0`. The permits are still in the local when the call returns. `pre8542_fast_path` may also fail `ret matches Poll::Ready(Ok(_)) ==> own.value() == Own::Fast` at the same return
 - `drop_no_return`: `Acquire::drop` postcondition `self.fl@.value() == 0`
 - `drop_no_remove`: the precondition of the `retire` transition. That transition requires the waiter to be off the list
 - `poll_clear_on_pending`: `Acquire::poll` postcondition `self.wf()`. `queued` no longer matches the future's phase
@@ -73,37 +81,39 @@ The bounded checker ([TOKIO_SEMAPHORE.md](TOKIO_SEMAPHORE.md)) rejects the same 
 
 ## How the proof is tied to the real code
 
-The Verus file is the real source with ghost code added and a listed set of changes, each marked `// VERUS:`.
+The Verus file is a hand-adapted copy of the real source: ghost code added, and executable lines rewritten in the categories below.
 
 [semaphore_proof/correspond.py](semaphore_proof/correspond.py) checks this mechanically, function by function:
-- input: the nine covered functions of the real file (master + fix; comments and `tokio_unstable` tracing items removed)
-- method: erase ghost syntax (`proof` blocks, tracked/ghost lets, `Tracked`/`Ghost` arguments), turn `atomic_with_ghost!(&x => op(args); ..)` back into `x.op(args)`, drop memory-ordering arguments
-- check: each real statement line must appear in the Verus function in the same order
-- result: 100 of 186 real lines are kept verbatim and in order
+- input: 12 functions of the real file (master + fix; comments and `#[cfg(all(tokio_unstable, ..))]` tracing items removed): `Semaphore::new`, `release`, `close`, `try_acquire`, `add_permits_locked`, `forget_permits`, `poll_acquire`, `Waiter::new`, `assign_permits`, `Acquire::poll`, `Acquire::new`, `Acquire::drop`
+- method: erase ghost syntax (`proof` blocks, `open_atomic_invariant!`, tracked/ghost lets, `Tracked`/`Ghost` arguments and fields, loop invariants), turn `atomic_with_ghost!(&x => op(args); ..)` back into `x.op(args)`, drop memory-ordering arguments, read `waiters.w.f` as `waiters.f`
+- check 1, kept: each real line that appears verbatim in the Verus function, in order. Result: 116 of 215 kept; the other 99 are printed as changed. For the nine functions covered before 2026-11-20 this is 110 of 186 (the earlier script reported 100 of 186; the gain comes from the more complete ghost erasure, e.g. reading `waiters.w.f` as `waiters.f` and erasing loop invariants, not from code changes)
+- check 2, added: each Verus executable line not matched to a real line must carry a `// VERUS:` marker (on the line or on a comment-only line directly above) or match an `ALLOWED` category in the script; otherwise the script exits 1. Result: 97 added lines: 56 marked, 41 in allowed categories, 0 unexplained
+- check 2 found one unmarked addition, now removed: an extra atomic `node.state.load()` in the `!*queued` branch of `poll_acquire`, used only to obtain the ghost fact `num_permits <= MAX_PERMITS`. Real Tokio has no such load. That fact is now a precondition of `poll_acquire` and part of `Acquire::wf`, established by `Acquire::new`'s `assert!`
 
-The 86 changed lines fall into these categories; the script prints each one:
+Categories of rewritten lines (each `// VERUS:` marker names its own):
 - `MutexGuard` is explicit:
   - `waiters.closed` becomes `waiters.w.closed`
-  - every lock acquisition also returns the ghost wait-list token
+  - every lock acquisition also returns the ghost wait-list token, so the guard is bound to a name where the real code uses `self.waiters.lock()` inline
   - each implicit guard drop is an explicit `unlock`, including the drops on early returns. Rust drops guards implicitly; Verus has no verified `Drop` for guards
+  - `Mutex::new(Waitlist { .. })` is built as a vstd `RwLock` holding the list and its ghost token
 - `assert!`/`assert_eq!` become `runtime_assert(cond)`. It is trusted to panic exactly when `cond` is false; Verus proves `cond`
 - control-flow sugar Verus does not accept, rewritten to its expansion:
   - `break value` from `loop`: kept in an `Option`
-  - `let .. else`: written as a `match`
-  - `r?`: written as a `match`
-  - `ready!(..)`: expanded
-  - `unwrap_or_else(|| ..)`: written as a `match`
+  - `while c { let Some(x) = .. else { break } }`: written as `loop { if !c { break } match .. }`
+  - `let .. else`, `r?`, `ready!(..)`, `unwrap_or_else(|| ..)`: written as a `match`
   - `cmp::min`: a trusted `min`
-  - an atomic call's result is bound to `res` before the `match`
+  - an atomic call's result is bound to a name (`res`, `s`, `st`) before its use, so the ghost step can see it
+  - a `mut` parameter becomes a local; `AcquireError::closed()` is inlined as `AcquireError(())`
 - intrusive pointers
-  - `Pin<&mut Waiter>`/`NonNull<Waiter>` become `Arc<Waiter>`
-  - `queue.remove(NonNull::from(&mut self.node))` becomes `queue.remove(&self.node)`
+  - `Pin<&mut Waiter>`/`NonNull<Waiter>` become `Arc<Waiter>`; `Acquire.node` is an `Arc<Waiter>`
+  - `queue.remove(NonNull::from(&mut self.node))` becomes `queue.remove(&self.node)`; `push_front` takes `node.clone()`
   - `project()` is inlined as field accesses
 - `waker.with_mut(|w| ..)` becomes the trusted `WakerCell::take`/`register`
 - tracing and taskdump code (`trace_leaf`, `trace_poll_op!`, spans) is removed
-- the `Pointers` field of `Waiter` is removed; the trusted list replaces it
+- the `Pointers` and `PhantomPinned` fields of `Waiter` are removed; the trusted list replaces them
+- `impl Drop for Acquire` becomes a plain method `Acquire::drop` (see trusted)
 
-Not mechanically checked: that the trusted stand-ins behave as specified, and that no real line was moved into a different branch. The in-order check does not detect a line moved to another branch; the mutation results and a manual read are the evidence for that.
+Not mechanically checked: that the trusted stand-ins behave as specified, that each rewrite preserves meaning, and that no real line was moved into a different branch. The in-order check does not detect a line moved to another branch; the mutation results and a manual read are the evidence for that. The `ALLOWED` categories are regexes on single lines; a line that matches one is not inspected further.
 
 ## Trusted (not proved)
 
@@ -142,7 +152,7 @@ Not mechanically checked: that the trusted stand-ins behave as specified, and th
 - CQS (Koval, Khalanskiy, Alistarh, [arXiv:2111.12682](https://arxiv.org/abs/2111.12682))
   - a formally verified fair, abortable semaphore and queue for Kotlin coroutines; a different algorithm and language
   - this is the closest verified cancellable semaphore
-  - we do not claim the first verified cancellable semaphore; the claim is the first proof about Tokio's
+  - we do not claim the first verified cancellable semaphore. We found no prior proof of Tokio's semaphore (search of 2026-11-18, not exhaustive)
 - Joshi et al., "Validating a High-Performance Cloud Object Store with Lightweight Formal Methods", SOSP '26, [doi:10.1145/3830418.3843899](https://doi.org/10.1145/3830418.3843899). Read in full (PDF), 2026-11-20
   - they test cancellation safety of application code (S3 Express) by injecting drops in the Shuttle stateless model checker, page 700: "We also extended our test framework to inject task drops at intermediate await points (to check cancellation safety) and to inject timeouts on demand"
   - page 700, their notion: "operations must satisfy cancellation safety: they should be correct even when dropped mid-update"
@@ -168,7 +178,7 @@ Not mechanically checked: that the trusted stand-ins behave as specified, and th
 
 ## Must not claim
 
-- "verified Tokio's semaphore" without qualification. Say "a Verus proof of permit conservation for a minimally changed copy of Tokio's `batch_semaphore.rs` (master `fc0d151` + close fix), assuming sequential consistency and a trusted list spec"
+- "verified Tokio's semaphore" without qualification. Say "a Verus proof of permit conservation for a hand-adapted Verus copy of Tokio's `batch_semaphore.rs` (master `fc0d151` + close fix; 116 of 215 real lines of the covered functions kept verbatim, the rest rewritten in listed categories, including `Pin`/`NonNull` and the intrusive list replaced by `Arc` plus a trusted-spec list, and `Drop` made a plain method), assuming sequential consistency and a trusted list spec, for clients that respect the ghost `held`/budget obligations"
 - anything about master as shipped, beyond this: the proof fails there, consistent with the leak reproduced in loom
 - liveness, unwind safety, or memory safety
 
@@ -176,8 +186,8 @@ Not mechanically checked: that the trusted stand-ins behave as specified, and th
 
 From `verification/async_cancel/semaphore_proof/`, with `VERUS` the Verus binary (built from `verus-lang/verus` `840fa612c`):
 - `$VERUS --crate-type=lib batch_semaphore.rs` → `verification results:: 88 verified, 0 errors` (about 5 s)
-- `python3 -I mutate.py $VERUS` → the six lines above; exit 0
+- `python3 -I mutate.py $VERUS` → the output above; exit 0
 - correspondence:
   - clone Tokio into a scratch dir
   - `git checkout fc0d151753b5fb10125ecef2d48f29b192c9abcf && git apply .../real_tokio/semaphore-close-fix.patch`
-  - `python3 -I correspond.py SCRATCH/tokio/src/sync/batch_semaphore.rs` → per-function counts, `total changed lines: 86`
+  - `python3 -I correspond.py SCRATCH/tokio/src/sync/batch_semaphore.rs` → per-function counts, then `total: 116/215 real lines kept verbatim in order; 99 changed` and `added: 97 (56 marked, 41 allowed, 0 unexplained)`; exit 0

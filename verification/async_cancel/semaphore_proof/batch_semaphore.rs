@@ -1152,6 +1152,7 @@ impl<'a> Acquire<'a> {
         &&& self.own@.instance_id() == iid && self.own@.key() == self.id()
         &&& self.fl@.instance_id() == iid && self.fl@.key() == Key::W(self.id()) && self.fl@.value() == 0
         &&& self.nt@.instance_id() == iid && self.nt@.key() == self.id() && self.nt@.value() == self.num_permits as nat
+        &&& self.num_permits <= MAXP()
         &&& self.queued == (self.own@.value() == Own::Fast || self.own@.value() == Own::Reg)
     }
 }
@@ -1170,19 +1171,19 @@ impl Semaphore {
         let tracked (Tracked(inst), Tracked(counter), Tracked(lk), Tracked(_ws), Tracked(_own), Tracked(_nums),
             Tracked(_fl), Tracked(_held), Tracked(budget), Tracked(next_id)) = Sem::Instance::initialize(permits as nat);
         proof { lemma_shl1(permits); }
-        let w = Waitlist { queue: LinkedList::new(), closed: false };
+        let w = Waitlist { queue: LinkedList::new(), closed: false }; // VERUS: `Mutex::new(Waitlist {..})` built in steps: the Waitlist, then a vstd RwLock holding it with the ghost token
         let ghost pred = LockPred { inst_id: inst.id() };
         proof { assert(ids(w.queue@) =~= Seq::<nat>::empty()); }
-        let rw = RwLock::new(LockVal { w, tok: Tracked(lk) }, Ghost(pred));
+        let rw = RwLock::new(LockVal { w, tok: Tracked(lk) }, Ghost(pred)); // VERUS: (see above)
         let tracked alloc = AtomicInvariant::new(inst.id(), next_id, ALLOC_NS());
         let tracked_inst = Tracked(inst.clone());
-        let s = Self {
+        let s = Self { // VERUS: `Self { .. }` bound to `s` so the ghost budget token can be returned alongside
             permits: AtomicUsize::new(Ghost(tracked_inst), permits << Self::PERMIT_SHIFT, Tracked(counter)),
-            waiters: Mutex { rw },
+            waiters: Mutex { rw }, // VERUS: `Mutex::new(..)`: vstd RwLock wrapper (see above)
             inst: Tracked(inst),
             alloc: Tracked(alloc),
         };
-        (s, Tracked(budget))
+        (s, Tracked(budget)) // VERUS: returns the semaphore with the ghost budget token
     }
 
     pub fn available_permits(&self) -> usize
@@ -1228,7 +1229,7 @@ impl Semaphore {
             };
             *op = f2;
         }
-        self.add_permits_locked(added, g, Tracked(lk), Tracked(op));
+        self.add_permits_locked(added, g, Tracked(lk), Tracked(op)); // VERUS: `self.add_permits_locked(added, self.waiters.lock())` with the guard bound above
     }
 
     #[verifier::loop_isolation(false)]
@@ -1254,6 +1255,7 @@ impl Semaphore {
                 wl_inv(self.inst@.id(), &waiters.w, lk),
                 !lk.value().popping,
         {
+            // VERUS: `while wakers.can_push() { let Some(..) else { break } }` written as `loop { if !can_push { break } match .. }`
             loop
                 invariant
                     self.wf(),
@@ -1261,7 +1263,7 @@ impl Semaphore {
                     wl_inv(self.inst@.id(), &waiters.w, lk),
                     !lk.value().popping,
             {
-                if !wakers.can_push() {
+                if !wakers.can_push() { // VERUS: (see above)
                     break;
                 }
                 // VERUS: `let Some(mut waiter) = .. else { break; }` written as a match
@@ -1273,8 +1275,8 @@ impl Semaphore {
                     self.inst.borrow().pop(&mut lk);
                     assert(ids(waiters.w.queue@) =~= lk.value().queue);
                 }
-                let waker = waiter.waker.take();
-                if let Some(waker) = waker {
+                let waker = waiter.waker.take(); // VERUS: `unsafe { waiter.as_mut().waker.with_mut(|waker| (*waker).take()) }` via trusted WakerCell::take
+                if let Some(waker) = waker { // VERUS: `if let Some(waker) = <expr>` with <expr> bound above
                     wakers.push(waker);
                 }
             }
@@ -1285,7 +1287,7 @@ impl Semaphore {
                 return;
             }
             let (w2, Tracked(lk2)) = self.waiters.lock();
-            waiters = w2;
+            waiters = w2; // VERUS: `waiters = self.waiters.lock()` with the ghost token bound separately
             proof { lk = lk2; }
         }
     }
@@ -1361,12 +1363,13 @@ impl Semaphore {
         ensures
             fl.instance_id() == old(fl).instance_id(), fl.key() == old(fl).key(), fl.value() == 0,
     {
-        let mut rem = rem;
+        let mut rem = rem; // VERUS: `mut rem` parameter made a local (Verus has no `mut` parameters)
         let mut wakers = WakeList::new();
         // VERUS: `let mut lock = Some(waiters);` with the ghost token alongside
         let mut lock = Some(waiters);
         let tracked mut lkt = Some(lk);
         let mut is_empty = false;
+        // VERUS: loop invariants added
         while rem > 0
             invariant
                 self.wf(),
@@ -1377,9 +1380,10 @@ impl Semaphore {
         {
             // VERUS: `lock.take().unwrap_or_else(|| self.waiters.lock())` without a closure
             let (mut waiters, Tracked(mut lk)) = match lock.take() {
-                Some(g) => (g, Tracked(lkt.tracked_take())),
-                None => self.waiters.lock(),
+                Some(g) => (g, Tracked(lkt.tracked_take())), // VERUS: `lock.take().unwrap_or_else(|| self.waiters.lock())` written as a match
+                None => self.waiters.lock(), // VERUS: (see above)
             };
+            // VERUS: `'inner: while wakers.can_push()` written as `loop { if !can_push { break } .. }`
             'inner: loop
                 invariant
                     self.wf(),
@@ -1390,8 +1394,8 @@ impl Semaphore {
                     is_empty ==> waiters.w.queue@.len() == 0,
                     lock is None,
             {
-                if !wakers.can_push() {
-                    break;
+                if !wakers.can_push() { // VERUS: (see above)
+                    break; // VERUS: (see above)
                 }
                 // Was the waiter assigned enough permits to wake it?
                 let _assigned = match waiters.w.queue.last() {
@@ -1416,13 +1420,13 @@ impl Semaphore {
                         break 'inner;
                     },
                 };
-                let waiter = waiters.w.queue.pop_back().unwrap();
+                let waiter = waiters.w.queue.pop_back().unwrap(); // VERUS: `let mut waiter` (no `as_mut()` on Arc)
                 proof {
                     self.inst.borrow().pop(&mut lk);
                     assert(ids(waiters.w.queue@) =~= lk.value().queue);
                 }
-                let waker = waiter.waker.take();
-                if let Some(waker) = waker {
+                let waker = waiter.waker.take(); // VERUS: `unsafe { waiter.as_mut().waker.with_mut(|waker| (*waker).take()) }` via trusted WakerCell::take
+                if let Some(waker) = waker { // VERUS: `if let Some(waker) = <expr>` with <expr> bound above
                     wakers.push(waker);
                 }
             }
@@ -1456,8 +1460,9 @@ impl Semaphore {
     }
 
     #[verifier::loop_isolation(false)]
-    pub fn forget_permits(&self, n: usize) -> usize
+    pub fn forget_permits(&self, n: usize) -> (r: usize)
         requires self.wf(),
+        ensures r <= n,
     {
         if n == 0 {
             return 0;
@@ -1475,11 +1480,13 @@ impl Semaphore {
                 returning res;
                 ghost g => {
                     if res is Ok {
+                        // the returned `min(curr, n)` is the amount removed from the ledger
+                        assert(curr - new == if curr < n { curr } else { n });
                         self.inst.borrow().forget((curr - new) as nat, &mut g);
                     }
                 });
             match res {
-                Ok(_) => return min(curr, n),
+                Ok(_) => return min(curr, n), // VERUS: `std::cmp::min` via trusted `min`
                 Err(actual) => curr_bits = actual,
             };
         }
@@ -1503,6 +1510,7 @@ impl Semaphore {
             old(own).value() != Own::Done,
             old(fl).instance_id() == self.inst@.id(), old(fl).key() == Key::W(node.id@), old(fl).value() == 0,
             nt.instance_id() == self.inst@.id(), nt.key() == node.id@, nt.value() == num_permits as nat,
+            num_permits <= MAXP(),
             *old(queued) == (old(own).value() == Own::Fast || old(own).value() == Own::Reg),
         ensures
             own.instance_id() == old(own).instance_id(), own.key() == old(own).key(),
@@ -1512,25 +1520,19 @@ impl Semaphore {
             ret matches Poll::Ready(Ok(_)) ==> own.value() == Own::Fast,
     {
         let id = Ghost(node.id@);
-        let mut acquired: usize = 0;
+        let mut acquired: usize = 0; // VERUS: `let mut acquired = 0;` with the type written out
 
         let needed = if *queued {
             let s = atomic_with_ghost!(&node.state => load();
-                ghost g => { self.inst.borrow().ws_bound(id@, &g, nt); });
+                ghost g => { self.inst.borrow().ws_bound(id@, &g, nt); }); // VERUS: `node.state.load(Acquire) << Self::PERMIT_SHIFT` with the load bound to `s` (ghost step); `s` is used on the next line
             proof { lemma_shl1(s); }
-            s << Self::PERMIT_SHIFT
+            s << Self::PERMIT_SHIFT // VERUS: (see above)
         } else {
-            proof {
-                // ws_bound via the nums token gives num_permits <= MAXP
-                assert(nt.value() == num_permits);
-            }
-            let s = atomic_with_ghost!(&node.state => load();
-                ghost g => { self.inst.borrow().ws_bound(id@, &g, nt); });
             proof { lemma_shl1(num_permits); }
             num_permits << Self::PERMIT_SHIFT
         };
 
-        let mut lock: Option<MutexGuard<'_>> = None;
+        let mut lock: Option<MutexGuard<'_>> = None; // VERUS: `let mut lock = None;` with the type written out
         let tracked mut lkt: Option<Sem::lk> = None;
         let ghost mut blk = false;
         // First, try to take the requested number of permits from the
@@ -1538,6 +1540,7 @@ impl Semaphore {
         let mut curr = atomic_with_ghost!(&self.permits => load(); ghost g => {});
         // VERUS: `let mut waiters = loop { .. break value .. }` written with an Option
         let mut out: Option<MutexGuard<'_>> = None;
+        // VERUS: `let mut waiters = loop {` (break value via `out`)
         loop
             invariant_except_break
                 acquired == 0,
@@ -1569,11 +1572,11 @@ impl Semaphore {
                 if let Some(g) = lock {
                     g.unlock(Tracked(lkt.tracked_unwrap()));
                 }
-                return Poll::Ready(Err(AcquireError(())));
+                return Poll::Ready(Err(AcquireError(()))); // VERUS: `AcquireError::closed()` inlined as the constructor
             }
 
             let mut remaining = 0;
-            let total = curr.checked_add(acquired).expect("number of permits must not overflow");
+            let total = curr.checked_add(acquired).expect("number of permits must not overflow"); // VERUS: `curr.checked_add(acquired).expect(..)` on one line (rustfmt split it)
             let (next, acq) = if total >= needed {
                 let next = curr - (needed - acquired);
                 (next, needed >> Self::PERMIT_SHIFT)
@@ -1592,7 +1595,7 @@ impl Semaphore {
                 // acquire the lock, we might miss additional permits being
                 // added while waiting for the lock.
                 let (g, Tracked(t)) = self.waiters.lock();
-                lock = Some(g);
+                lock = Some(g); // VERUS: `lock = Some(self.waiters.lock());` with the guard bound above
                 proof { lkt = Some(t); }
             }
 
@@ -1642,19 +1645,19 @@ impl Semaphore {
                             return Poll::Ready(Ok(()));
                         } else if lock.is_none() {
                             let (g, Tracked(t)) = self.waiters.lock();
-                            out = Some(g);
+                            out = Some(g); // VERUS: `break self.waiters.lock();` via `out`
                             proof { lkt = Some(t); }
-                            break;
+                            break; // VERUS: (see above)
                         }
                     }
-                    out = Some(lock.expect("lock must be acquired before waiting"));
+                    out = Some(lock.expect("lock must be acquired before waiting")); // VERUS: `break lock.expect(..);` via `out`
                     proof { if remaining > 0 { blk = true; } }
-                    break;
+                    break; // VERUS: (see above)
                 },
                 Err(actual) => curr = actual,
             }
         }
-        let mut waiters = out.unwrap();
+        let mut waiters = out.unwrap(); // VERUS: end of `let mut waiters = loop {..};` (break value via `out`)
         let tracked mut lk = lkt.tracked_unwrap();
 
         if waiters.w.closed {
@@ -1670,7 +1673,7 @@ impl Semaphore {
                 proof { *fl = tf; }
             }
             waiters.unlock(Tracked(lk)); // VERUS: Rust drops `waiters` on return
-            return Poll::Ready(Err(AcquireError(())));
+            return Poll::Ready(Err(AcquireError(()))); // VERUS: `AcquireError::closed()` inlined as the constructor
         }
 
         // The waiter is about to be assigned permits or linked into the wait
@@ -1689,11 +1692,11 @@ impl Semaphore {
         runtime_assert(acquired == 0); // assert_eq!(acquired, 0);
 
         // Otherwise, register the waker & enqueue the node.
-        let old_waker = node.waker.register(cx);
+        let old_waker = node.waker.register(cx); // VERUS: `node.waker.with_mut(|waker| { .. will_wake .. replace .. })` via trusted WakerCell::register
 
         // If the waiter is not already in the wait queue, enqueue it.
         if !was_queued {
-            waiters.w.queue.push_front(node.clone());
+            waiters.w.queue.push_front(node.clone()); // VERUS: `Pin::into_inner_unchecked`/`NonNull` node replaced by `Arc` clone
             proof { assert(ids(waiters.w.queue@) =~= lk.value().queue); }
         }
         waiters.unlock(Tracked(lk)); // drop(waiters);
@@ -1711,7 +1714,7 @@ impl Waiter {
     {
         let tracked_inst = Tracked(inst);
         Waiter {
-            waker: WakerCell::new(),
+            waker: WakerCell::new(), // VERUS: `UnsafeCell::new(None)` via trusted WakerCell; `pointers` and `_p: PhantomPinned` removed
             state: AtomicUsize::new(Ghost((tracked_inst, Ghost(id))), num_permits, Tracked(ws)),
             inst: tracked_inst,
             id: Ghost(id),
@@ -1759,7 +1762,7 @@ impl Waiter {
                 self.wf(), self.inst@.id() == inst.id(),
                 lk == old(lk), fl == old(fl), own == old(own), *n == *old(n),
         {
-            let assign = min(curr, *n);
+            let assign = min(curr, *n); // VERUS: `cmp::min` via trusted `min`
             let next = curr - assign;
             let tracked mut tf = take_fl(fl);
             let tracked mut to = take_own(own);
@@ -1834,7 +1837,7 @@ impl<'a> Acquire<'a> {
         // the last tracing event, so that the permits are still returned if
         // the subscriber panics.
         if result.is_ready() {
-            self.queued = false;
+            self.queued = false; // VERUS: `*queued = false` with `project()` inlined
             proof {
                 let tracked to = take_own(self.own.borrow_mut());
                 let tracked (Tracked(o2), Tracked(h)) = self.semaphore.inst.borrow().complete(self.node.id@, to, self.nt.borrow());
@@ -1864,8 +1867,8 @@ impl<'a> Acquire<'a> {
                 own = o; ws = w; nt = n; fl = f;
             }
         });
-        Acquire {
-            node: Arc::new(Waiter::new(num_permits, Tracked(semaphore.inst.borrow().clone()), Ghost(id), Tracked(ws))),
+        Acquire { // VERUS: `return Self { .. }` (the non-tracing cfg branch)
+            node: Arc::new(Waiter::new(num_permits, Tracked(semaphore.inst.borrow().clone()), Ghost(id), Tracked(ws))), // VERUS: `Waiter::new(num_permits)` boxed in `Arc` (intrusive node replaced by Arc)
             semaphore,
             num_permits,
             queued: false,
@@ -1904,7 +1907,7 @@ impl<'a> Acquire<'a> {
         // remove the entry from the list
         let ghost oldq = waiters.w.queue@;
         proof { self.semaphore.inst.borrow().q_nodup(&lk); }
-        let removed = waiters.w.queue.remove(&self.node);
+        let removed = waiters.w.queue.remove(&self.node); // VERUS: `unsafe { waiters.queue.remove(NonNull::from(&mut self.node)) }` on the trusted list
         proof {
             if lk.value().queue.contains(self.node.id@) {
                 let i = lk.value().queue.index_of(self.node.id@);
@@ -1929,12 +1932,12 @@ impl<'a> Acquire<'a> {
                 self.semaphore.inst.borrow().ws_bound(self.node.id@, &g, self.nt.borrow());
                 let tracked (Tracked(o2), Tracked(f2)) = self.semaphore.inst.borrow().retire(self.node.id@, &mut lk, &g, to, tf);
                 to = o2; tf = f2;
-            });
-        let acquired_permits = self.num_permits - st;
+            }); // VERUS: `self.node.state.load(Acquire)` bound to `st` (ghost step)
+        let acquired_permits = self.num_permits - st; // VERUS: (see above)
         proof { *self.own.borrow_mut() = to; }
         if acquired_permits > 0 {
             self.semaphore.add_permits_locked(acquired_permits, waiters, Tracked(lk), Tracked(&mut tf));
-        } else {
+        } else { // VERUS: guard drop made explicit: Rust drops `waiters` when `acquired_permits == 0`
             waiters.unlock(Tracked(lk)); // VERUS: Rust drops `waiters`
         }
         proof { *self.fl.borrow_mut() = tf; }
