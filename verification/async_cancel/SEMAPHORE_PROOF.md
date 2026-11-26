@@ -5,6 +5,8 @@ Result, 2026-11-20 UTC: a Verus proof that Tokio's batch semaphore conserves per
 
 Follow-up, 2026-11-20: for a hand-adapted copy of Tokio's clients of this semaphore (`Semaphore` and its permits, `Mutex`, `RwLock`, bounded `mpsc`; 166 of 340 real lines kept verbatim, each `async fn` rewritten by hand as a future and checked only by reading), Verus checks that the covered functions return exactly the permits they hold on drop, cancellation and close: [CLIENTS_PROOF.md](CLIENTS_PROOF.md). The `Arc`-owning futures (`acquire_owned`, `lock_owned`, `read_owned`/`write_owned`, `reserve_owned`) and the mapped guards are not covered. This closes part of obligation 6 below.
 
+Follow-up, 2026-11-26: the compiled MIR of the real code and the compiled MIR of this Verus copy are now compared mechanically, function by function: [MIR_CORRESPOND.md](MIR_CORRESPOND.md). For all 12 covered functions, every path (each block at most 3 times; also run at 5) performs the same permit-relevant operations with the same symbolic arguments: atomics on the counter and waiter states, list operations, lock/unlock, branches, asserts and returns. The exceptions are four stated rewrites, none in a concurrent permit-moving step. Seven mutations on either side are caught or behave as expected. The stub mapping and the loop bound are trusted. The same doc argues that conservation needs no ordering stronger than `Relaxed` at any of the 16 atomic sites; loom passes Tokio's batch-semaphore tests with all of them weakened to `Relaxed`. This closes most of obligation 2 and part of obligation 1.
+
 What was verified: a hand-adapted Verus copy of the real `batch_semaphore.rs`, not a separate model. Of the 215 statement lines of the 12 covered real functions, 116 are kept verbatim and in order. The rest are rewritten in the categories listed under "How the proof is tied to the real code", including `Pin`/`NonNull` and the intrusive list replaced by `Arc` plus a trusted-spec list, and `Drop` made a plain method. The copy keeps the real atomic operations; every line it adds carries a `// VERUS:` marker or falls in a listed category (checked by `correspond.py`). The linked list, wakers, coop budget and std types have trusted specifications. The mutex is vstd's verified `RwLock`. The proof is in [semaphore_proof/batch_semaphore.rs](semaphore_proof/batch_semaphore.rs).
 
 ## Theorem
@@ -119,13 +121,13 @@ Categories of rewritten lines (each `// VERUS:` marker names its own):
 - the `Pointers` and `PhantomPinned` fields of `Waiter` are removed; the trusted list replaces them
 - `impl Drop for Acquire` becomes a plain method `Acquire::drop` (see trusted)
 
-Not mechanically checked: that the trusted stand-ins behave as specified, that each rewrite preserves meaning, and that no real line was moved into a different branch. The in-order check does not detect a line moved to another branch; the mutation results and a manual read are the evidence for that. The `ALLOWED` categories are regexes on single lines; a line that matches one is not inspected further.
+Not mechanically checked by `correspond.py`: that the trusted stand-ins behave as specified, that each rewrite preserves meaning, and that no real line was moved into a different branch. Since 2026-11-26 the last two are checked at the MIR level, up to a loop bound, by [mir_correspond.py](semaphore_proof/mir_correspond.py) ([MIR_CORRESPOND.md](MIR_CORRESPOND.md)). The in-order check does not detect a line moved to another branch; the mutation results and a manual read are the evidence for that. The `ALLOWED` categories are regexes on single lines; a line that matches one is not inspected further.
 
 ## Trusted (not proved)
 
 - the real source is reduced to this copy by the changes listed above. The checker shows which lines changed, not that each change preserves meaning
 - Verus, Z3 and rustc; VerusSync's macro-generated token rules (vstd says the macro "creates trusted implementations")
-- memory model: Verus treats every atomic operation as one sequentially consistent step and ignores `Ordering`. The real code uses `Acquire`/`Release`/`AcqRel`. The bounded checker covered stale waiter-state loads; this proof does not. A C11-level argument is not done (see what remains)
+- memory model: Verus treats every atomic operation as one sequentially consistent step and ignores `Ordering`. The real code uses `Acquire`/`Release`/`AcqRel`. The bounded checker covered stale waiter-state loads; this proof does not. A C11-level argument for conservation, with a loom run of the real code with every ordering weakened to `Relaxed`, is in [MIR_CORRESPOND.md](MIR_CORRESPOND.md); it is unchecked reasoning plus bounded testing, not a proof
 - the intrusive `LinkedList` spec: `push_front`, `last`, `pop_back`, `remove`
   - as a sequence of `Arc<Waiter>`, with nodes identified by a ghost id instead of an address
   - `remove` is assumed to remove exactly the node with that id, given no duplicates; the proof shows there are none
@@ -173,9 +175,11 @@ Not mechanically checked: that the trusted stand-ins behave as specified, that e
 1. Memory model: prove P1 under C11 orderings. Candidates:
    - a relaxed-memory logic, e.g. an Iris-based RustBelt-relaxed or GPS-style proof
    - an argument that every load feeding a decision is either a CAS input (a stale value only makes the CAS fail) or protected by the mutex's happens-before. The checker's note in [TOKIO_SEMAPHORE.md](TOKIO_SEMAPHORE.md) sketches this; it is unchecked
+   - partly done 2026-11-26, [MIR_CORRESPOND.md](MIR_CORRESPOND.md): the argument, written out per atomic site, concludes that conservation needs only RMW atomicity and the mutex (any ordering, `Relaxed` included). Loom passes the 9 batch-semaphore tests with all 16 sites `Relaxed`. Remaining: a mechanised C11 proof; the other invariants and liveness under C11
 2. Real-code link at MIR level: show that the Verus copy's executable statements equal the compiled MIR of `fc0d151`+fix. Two possible routes:
    - extend `tokio_semaphore.py`'s MIR parser to produce the same normalised statements as `correspond.py`
    - verify the real file in place with Verus attributes. That needs Verus support for `Pin`, implicit guard drops, `let .. else`, `?` in `Poll`, `break` with value, and closures in `unwrap_or_else`/`with_mut`
+   - mostly done 2026-11-26 by a third route, [MIR_CORRESPOND.md](MIR_CORRESPOND.md): the compiled MIR of the real code and of the copy (Verus's own ghost-erased build) agree on every path up to a loop bound, apart from four stated rewrites. Remaining: an unbounded equivalence (loops), and a mechanical check of the stub mapping
 3. The intrusive list: replace the trusted `LinkedList` spec with a verified one over raw pointers (e.g. vstd `PPtr`/`PointsTo`). That also needs proofs that the waiter's address is stable (pinning) and that `Waiter` is freed only after it is unlinked. The ghost invariant "done ⇒ unlinked" is already proved
 4. `Drop`: get Verus to verify `impl Drop for Acquire` with the type invariant, or prove that Rust calls it once. Today Verus requires `Drop` to have no precondition and `opens_invariants none` ([REPORT.md](REPORT.md))
 5. Unwinding: the tracing-panic paths (#8541, #8542) need an unwind-aware semantics; Verus has none for exec code
@@ -185,7 +189,7 @@ Not mechanically checked: that the trusted stand-ins behave as specified, that e
 
 ## Must not claim
 
-- "verified Tokio's semaphore" without qualification. Say "a Verus proof of permit conservation for a hand-adapted Verus copy of Tokio's `batch_semaphore.rs` (master `fc0d151` + close fix; 116 of 215 real lines of the covered functions kept verbatim, the rest rewritten in listed categories, including `Pin`/`NonNull` and the intrusive list replaced by `Arc` plus a trusted-spec list, and `Drop` made a plain method), assuming sequential consistency and a trusted list spec, for clients that respect the ghost `held`/budget obligations"
+- "verified Tokio's semaphore" without qualification. Say "a Verus proof of permit conservation for a hand-adapted Verus copy of Tokio's `batch_semaphore.rs` (master `fc0d151` + close fix; 116 of 215 real lines of the covered functions kept verbatim, the rest rewritten in listed categories, including `Pin`/`NonNull` and the intrusive list replaced by `Arc` plus a trusted-spec list, and `Drop` made a plain method), assuming sequential consistency and a trusted list spec, for clients that respect the ghost `held`/budget obligations". Since 2026-11-26 one may add: "whose compiled MIR agrees with the real compiled MIR on all permit-relevant operations along every path up to a loop bound of 3 block visits, under a trusted stub mapping and four stated rewrites (MIR_CORRESPOND.md)". Do not shorten this to "the proof is about the real code": the check is bounded and syntactic, and the list and waker stand-ins are still trusted
 - anything about master as shipped, beyond this: the proof fails there, consistent with the leak reproduced in loom
 - liveness, unwind safety, or memory safety
 
